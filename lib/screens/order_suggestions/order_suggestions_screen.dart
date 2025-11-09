@@ -425,6 +425,28 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                   selected: false,
                   onSelected: (_) => _clearAllFilters(),
                 ),
+                SizedBox(width: _smallSpacing),
+                // Refresh button
+                IconButton(
+                  icon: Icon(
+                    Icons.refresh,
+                    size: _isSmallScreen ? 20.0 : 24.0,
+                  ),
+                  tooltip: 'Refresh',
+                  onPressed: () => _refreshOrderSuggestions(),
+                  padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
+                  constraints: BoxConstraints(
+                    minWidth: _isSmallScreen ? 32.0 : 40.0,
+                    minHeight: _isSmallScreen ? 32.0 : 40.0,
+                  ),
+                  style: IconButton.styleFrom(
+                    backgroundColor:
+                        Theme.of(context).primaryColor.withOpacity(0.1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -506,6 +528,58 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
     });
     ref.read(orderSuggestionFilterProvider.notifier).state =
         OrderSuggestionFilter();
+  }
+
+  Future<void> _refreshOrderSuggestions() async {
+    try {
+      // Show loading indicator
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text('Refreshing items...'),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // Call the refresh method from the provider
+      await ref.read(orderSuggestionsProvider.notifier).loadOrderSuggestions();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Items refreshed successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing items: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildSupplierDropdown() {

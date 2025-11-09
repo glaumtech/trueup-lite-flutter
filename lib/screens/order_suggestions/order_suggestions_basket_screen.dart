@@ -527,13 +527,14 @@ class _OrderSuggestionsBasketScreenState
 
   Future<void> _copySupplierList(
       String supplierName, List<POBasketItem> items) async {
-    // Format: Only Product Name and Quantity
+    // Format: Product Name, Quantity and Unit
     final buffer = StringBuffer();
 
     for (var item in items) {
       final productName = item.name ?? 'Unknown Product';
       final quantity = item.quantity ?? 0;
-      buffer.writeln('$productName - $quantity');
+      final unit = item.unit ?? 'Piece';
+      buffer.writeln('$productName - $quantity $unit');
     }
 
     final formattedText = buffer.toString().trim();
