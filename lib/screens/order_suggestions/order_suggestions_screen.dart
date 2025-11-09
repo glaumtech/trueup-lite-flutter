@@ -15,9 +15,7 @@ class OrderSuggestionsScreen extends ConsumerStatefulWidget {
       _OrderSuggestionsScreenState();
 }
 
-class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen> {
   final _searchController = TextEditingController();
   // Map to store TextEditingControllers for each product's quantity field
   final Map<int, TextEditingController> _quantityControllers = {};
@@ -93,14 +91,8 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     _selectedCategory = 'All Categories';
     _selectedBrand = 'All Brands';
-
-    // Add listener to rebuild when tab changes
-    _tabController.addListener(() {
-      setState(() {}); // Rebuild to show/hide FAB
-    });
 
     // Load categories, brands, and basket items when screen initializes
     // Note: orderSuggestionsProvider will auto-load via its build() method when watched
@@ -125,7 +117,6 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
   @override
   void dispose() {
-    _tabController.dispose();
     _searchController.dispose();
     // Dispose all quantity controllers
     for (var controller in _quantityControllers.values) {
@@ -203,44 +194,25 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
       ),
       body: Column(
         children: [
-          _buildTabs(),
-          if (_tabController.index != 2)
-            _buildFilterControls(), // Hide filters for CUSTOM tab
+          _buildFilterControls(),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                // PRODUCTS tab
-                suggestionsAsync.when(
-                  data: (suggestions) => _buildProductList(suggestions),
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, stack) => Center(child: Text('Error: $error')),
-                ),
-                // SUPPLIERS tab (for now, show products - can be customized later)
-                suggestionsAsync.when(
-                  data: (suggestions) => _buildProductList(suggestions),
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, stack) => Center(child: Text('Error: $error')),
-                ),
-                // CUSTOM tab
-                _buildCustomItemsTab(),
-              ],
+            child: suggestionsAsync.when(
+              data: (suggestions) => _buildProductList(suggestions),
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              error: (error, stack) => Center(child: Text('Error: $error')),
             ),
           ),
         ],
       ),
-      floatingActionButton: _tabController.index == 2
-          ? FloatingActionButton.extended(
-              onPressed: () => _showAddCustomItemDialog(),
-              icon: Icon(Icons.add, size: _isSmallScreen ? 18.0 : 24.0),
-              label: Text(
-                'Add Custom Item',
-                style: TextStyle(fontSize: _bodyFontSize),
-              ),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddCustomItemDialog(),
+        icon: Icon(Icons.add, size: _isSmallScreen ? 18.0 : 24.0),
+        label: Text(
+          'Add Custom Item',
+          style: TextStyle(fontSize: _bodyFontSize),
+        ),
+      ),
       bottomNavigationBar:
           _isMultiSelectMode ? _buildMultiSelectActionBar() : null,
     );
@@ -349,40 +321,6 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
     });
   }
 
-  Widget _buildTabs() {
-    return Padding(
-      padding: EdgeInsets.all(_smallSpacing),
-      child: TabBar(
-        controller: _tabController,
-        labelColor: Colors.white,
-        unselectedLabelColor: Colors.black,
-        labelStyle: TextStyle(
-          fontSize: _isSmallScreen
-              ? 11.0
-              : _isMediumScreen
-                  ? 12.0
-                  : 14.0,
-          fontWeight: FontWeight.bold,
-        ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: _isSmallScreen
-              ? 11.0
-              : _isMediumScreen
-                  ? 12.0
-                  : 14.0,
-        ),
-        indicator: BoxDecoration(
-          borderRadius: BorderRadius.circular(8.0),
-          color: Colors.blue,
-        ),
-        tabs: const [
-          Tab(text: 'PRODUCTS'),
-          Tab(text: 'SUPPLIERS'),
-          Tab(text: 'CUSTOM'),
-        ],
-      ),
-    );
-  }
 
   Widget _buildFilterControls() {
     return Padding(
@@ -1512,65 +1450,6 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
     }
   }
 
-  Widget _buildCustomItemsTab() {
-    final basket = ref.watch(basketProvider);
-    final customItems = basket.where((item) => item.type == 'custom').toList();
-
-    if (customItems.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.add_circle_outline,
-              size: 64,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No Custom Items',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap the + button to add a custom item',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: customItems.length,
-      itemBuilder: (context, index) {
-        final item = customItems[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.orange[100],
-              child: Icon(Icons.edit, color: Colors.orange[800]),
-            ),
-            title: Text(item.name ?? 'Unknown Item'),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (item.supplierName != null)
-                  Text('Supplier: ${item.supplierName}'),
-                Text('Quantity: ${item.quantity ?? 0} ${item.unit ?? ''}'),
-              ],
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () => _removeCustomItem(item),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Future<void> _showAddCustomItemDialog() async {
     final productNameController = TextEditingController();
