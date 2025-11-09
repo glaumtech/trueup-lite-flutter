@@ -17,7 +17,7 @@ class ApiService {
   // For iOS Simulator: use 'http://localhost:8081'
   // For iOS Physical Device: use your Mac's local IP (e.g., 'http://192.168.1.7:8081')
   static const String baseUrl =
-      'http://10.0.2.2:8081'; // Mac's local IP for physical device connection
+      'https://ghopon.com/trueup-lite-renga'; // Mac's local IP for physical device connection
   static const String orderSuggestionsPath = '/order-suggestions';
   static const String itemsPath = '/items/getAll';
 
@@ -932,6 +932,34 @@ class ApiService {
       }
     } catch (e) {
       throw ApiException('Error getting brands: $e');
+    }
+  }
+
+  /// Get all suppliers for dropdown selection
+  Future<List<Map<String, dynamic>>> getSuppliers({
+    int? categoryId,
+    int? brandId,
+  }) async {
+    try {
+      final uri =
+          Uri.parse('$baseUrl/items/suppliers').replace(queryParameters: {
+        if (categoryId != null) 'categoryId': categoryId.toString(),
+        if (brandId != null) 'brandId': brandId.toString(),
+      });
+
+      final response = await _getWithTimeout(
+        uri,
+        operationName: 'getSuppliers',
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = json.decode(response.body);
+        return jsonList.map((json) => json as Map<String, dynamic>).toList();
+      } else {
+        throw ApiException('Failed to get suppliers', response.statusCode);
+      }
+    } catch (e) {
+      throw ApiException('Error getting suppliers: $e');
     }
   }
 

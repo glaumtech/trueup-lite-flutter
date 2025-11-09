@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dropdown_search/dropdown_search.dart';
 import '../../models/product_order_suggestion.dart';
 import '../../providers/order_suggestions_provider.dart';
 import '../../models/po_basket_item.dart';
+import '../../services/api_service.dart';
 
 class OrderSuggestionsScreen extends ConsumerStatefulWidget {
   const OrderSuggestionsScreen({super.key});
@@ -33,12 +35,72 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
   bool _isMultiSelectMode = false;
   final Set<int> _selectedProductIds = {};
 
+  // Responsive sizing helpers
+  double get _screenWidth => MediaQuery.of(context).size.width;
+  bool get _isSmallScreen => _screenWidth < 600;
+  bool get _isMediumScreen => _screenWidth >= 600 && _screenWidth < 900;
+
+  // Responsive font sizes
+  double get _titleFontSize => _isSmallScreen
+      ? 16.0
+      : _isMediumScreen
+          ? 18.0
+          : 20.0;
+  double get _bodyFontSize => _isSmallScreen
+      ? 12.0
+      : _isMediumScreen
+          ? 14.0
+          : 16.0;
+  double get _labelFontSize => _isSmallScreen
+      ? 10.0
+      : _isMediumScreen
+          ? 12.0
+          : 14.0;
+
+  // Responsive spacing
+  double get _smallSpacing => _isSmallScreen
+      ? 4.0
+      : _isMediumScreen
+          ? 6.0
+          : 8.0;
+  double get _mediumSpacing => _isSmallScreen
+      ? 8.0
+      : _isMediumScreen
+          ? 12.0
+          : 16.0;
+
+  // Responsive padding
+  EdgeInsets get _screenPadding => EdgeInsets.symmetric(
+        horizontal: _isSmallScreen
+            ? 8.0
+            : _isMediumScreen
+                ? 12.0
+                : 16.0,
+        vertical: _isSmallScreen
+            ? 4.0
+            : _isMediumScreen
+                ? 6.0
+                : 8.0,
+      );
+
+  // Responsive dropdown height
+  double get _dropdownHeight => _isSmallScreen
+      ? 40.0
+      : _isMediumScreen
+          ? 45.0
+          : 50.0;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _selectedCategory = 'All Categories';
     _selectedBrand = 'All Brands';
+
+    // Add listener to rebuild when tab changes
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to show/hide FAB
+    });
 
     // Load categories, brands, and basket items when screen initializes
     // Note: orderSuggestionsProvider will auto-load via its build() method when watched
@@ -81,37 +143,54 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Purchase Order Manager'),
-        leading: const Icon(Icons.shopping_cart),
+        title: Text(
+          'Purchase Order Manager',
+          style: TextStyle(fontSize: _isSmallScreen ? 16.0 : 18.0),
+        ),
+        leading: Icon(
+          Icons.shopping_cart,
+          size: _isSmallScreen ? 20.0 : 24.0,
+        ),
         actions: [
           // Display basket count badge - clickable to navigate to basket
           Padding(
-            padding: const EdgeInsets.only(right: 16.0),
+            padding: EdgeInsets.only(
+              right: _isSmallScreen ? 8.0 : 16.0,
+            ),
             child: InkWell(
               onTap: () {
                 context.go('/order-suggestions/basket');
               },
               borderRadius: BorderRadius.circular(8),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: EdgeInsets.symmetric(
+                  horizontal: _isSmallScreen ? 4.0 : 8.0,
+                  vertical: _isSmallScreen ? 2.0 : 4.0,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.shopping_basket, color: Colors.white),
-                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.shopping_basket,
+                      color: Colors.white,
+                      size: _isSmallScreen ? 18.0 : 24.0,
+                    ),
+                    SizedBox(width: _isSmallScreen ? 4.0 : 8.0),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: _isSmallScreen ? 6.0 : 8.0,
+                        vertical: _isSmallScreen ? 2.0 : 4.0,
+                      ),
                       decoration: BoxDecoration(
                         color: basketCount > 0 ? Colors.green : Colors.grey,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         '$basketCount',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                          fontSize: _isSmallScreen ? 12.0 : 14.0,
                         ),
                       ),
                     ),
@@ -125,16 +204,43 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
       body: Column(
         children: [
           _buildTabs(),
-          _buildFilterControls(),
+          if (_tabController.index != 2)
+            _buildFilterControls(), // Hide filters for CUSTOM tab
           Expanded(
-            child: suggestionsAsync.when(
-              data: (suggestions) => _buildProductList(suggestions),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, stack) => Center(child: Text('Error: $error')),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // PRODUCTS tab
+                suggestionsAsync.when(
+                  data: (suggestions) => _buildProductList(suggestions),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (error, stack) => Center(child: Text('Error: $error')),
+                ),
+                // SUPPLIERS tab (for now, show products - can be customized later)
+                suggestionsAsync.when(
+                  data: (suggestions) => _buildProductList(suggestions),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (error, stack) => Center(child: Text('Error: $error')),
+                ),
+                // CUSTOM tab
+                _buildCustomItemsTab(),
+              ],
             ),
           ),
         ],
       ),
+      floatingActionButton: _tabController.index == 2
+          ? FloatingActionButton.extended(
+              onPressed: () => _showAddCustomItemDialog(),
+              icon: Icon(Icons.add, size: _isSmallScreen ? 18.0 : 24.0),
+              label: Text(
+                'Add Custom Item',
+                style: TextStyle(fontSize: _bodyFontSize),
+              ),
+            )
+          : null,
       bottomNavigationBar:
           _isMultiSelectMode ? _buildMultiSelectActionBar() : null,
     );
@@ -142,7 +248,10 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
   Widget _buildMultiSelectActionBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: _isSmallScreen ? 12.0 : 16.0,
+        vertical: _isSmallScreen ? 6.0 : 8.0,
+      ),
       decoration: BoxDecoration(
         color: Theme.of(context).primaryColor,
         boxShadow: [
@@ -159,9 +268,10 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           children: [
             Text(
               '${_selectedProductIds.length} selected',
-              style: const TextStyle(
+              style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
+                fontSize: _bodyFontSize,
               ),
             ),
             Row(
@@ -173,20 +283,39 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                       _isMultiSelectMode = false;
                     });
                   },
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  label: const Text('Cancel',
-                      style: TextStyle(color: Colors.white)),
+                  icon: Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: _isSmallScreen ? 18.0 : 24.0,
+                  ),
+                  label: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: _bodyFontSize,
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: _smallSpacing),
                 ElevatedButton.icon(
                   onPressed: _selectedProductIds.isEmpty
                       ? null
                       : () => _addSelectedToBasket(),
-                  icon: const Icon(Icons.add_shopping_cart),
-                  label: const Text('Add to Basket'),
+                  icon: Icon(
+                    Icons.add_shopping_cart,
+                    size: _isSmallScreen ? 18.0 : 24.0,
+                  ),
+                  label: Text(
+                    'Add to Basket',
+                    style: TextStyle(fontSize: _bodyFontSize),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
                     foregroundColor: Theme.of(context).primaryColor,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: _isSmallScreen ? 8.0 : 12.0,
+                      vertical: _isSmallScreen ? 6.0 : 8.0,
+                    ),
                   ),
                 ),
               ],
@@ -222,11 +351,26 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
   Widget _buildTabs() {
     return Padding(
-      padding: const EdgeInsets.all(8.0),
+      padding: EdgeInsets.all(_smallSpacing),
       child: TabBar(
         controller: _tabController,
         labelColor: Colors.white,
         unselectedLabelColor: Colors.black,
+        labelStyle: TextStyle(
+          fontSize: _isSmallScreen
+              ? 11.0
+              : _isMediumScreen
+                  ? 12.0
+                  : 14.0,
+          fontWeight: FontWeight.bold,
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontSize: _isSmallScreen
+              ? 11.0
+              : _isMediumScreen
+                  ? 12.0
+                  : 14.0,
+        ),
         indicator: BoxDecoration(
           borderRadius: BorderRadius.circular(8.0),
           color: Colors.blue,
@@ -242,20 +386,27 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
   Widget _buildFilterControls() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      padding: _screenPadding,
       child: Column(
         children: [
           TextField(
             controller: _searchController,
+            style: TextStyle(fontSize: _bodyFontSize),
             decoration: InputDecoration(
               hintText: 'Search products...',
-              prefixIcon: const Icon(Icons.search),
+              hintStyle: TextStyle(fontSize: _bodyFontSize),
+              prefixIcon:
+                  Icon(Icons.search, size: _isSmallScreen ? 20.0 : 24.0),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: _mediumSpacing,
+                vertical: _isSmallScreen ? 10.0 : 12.0,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8.0),
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: _smallSpacing),
           // Filter chips row
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -268,7 +419,7 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                     setState(() => _inStockOnly = value);
                   },
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: _smallSpacing),
                 _buildFilterChip(
                   label: 'Clear Filters',
                   selected: false,
@@ -277,16 +428,44 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
               ],
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(flex: 3, child: _buildCategoryDropdown()),
-              const SizedBox(width: 8),
-              Expanded(flex: 3, child: _buildBrandDropdown()),
-              const SizedBox(width: 8),
-              Expanded(flex: 3, child: _buildSupplierDropdown()),
-            ],
-          ),
+          SizedBox(height: _smallSpacing),
+          // Responsive dropdown layout
+          _isSmallScreen
+              ? Column(
+                  children: [
+                    SizedBox(
+                        height: _dropdownHeight,
+                        child: _buildCategoryDropdown()),
+                    SizedBox(height: _smallSpacing),
+                    SizedBox(
+                        height: _dropdownHeight, child: _buildBrandDropdown()),
+                    SizedBox(height: _smallSpacing),
+                    SizedBox(
+                        height: _dropdownHeight,
+                        child: _buildSupplierDropdown()),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                        flex: 3,
+                        child: SizedBox(
+                            height: _dropdownHeight,
+                            child: _buildCategoryDropdown())),
+                    SizedBox(width: _smallSpacing),
+                    Expanded(
+                        flex: 3,
+                        child: SizedBox(
+                            height: _dropdownHeight,
+                            child: _buildBrandDropdown())),
+                    SizedBox(width: _smallSpacing),
+                    Expanded(
+                        flex: 3,
+                        child: SizedBox(
+                            height: _dropdownHeight,
+                            child: _buildSupplierDropdown())),
+                  ],
+                ),
         ],
       ),
     );
@@ -298,10 +477,20 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
     required Function(bool) onSelected,
   }) {
     return FilterChip(
-      label: Text(label),
+      label: Text(
+        label,
+        style: TextStyle(fontSize: _labelFontSize),
+      ),
       selected: selected,
       onSelected: onSelected,
       selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+      padding: EdgeInsets.symmetric(
+        horizontal: _smallSpacing,
+        vertical: _isSmallScreen ? 4.0 : 6.0,
+      ),
+      labelPadding: EdgeInsets.symmetric(
+        horizontal: _smallSpacing,
+      ),
     );
   }
 
@@ -333,14 +522,9 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
         final supplierList = ['All Suppliers', ...suppliers];
 
-        return DropdownButtonFormField<String>(
-          value: _selectedSupplier ?? 'All Suppliers',
-          items: supplierList
-              .map((supplier) => DropdownMenuItem(
-                    value: supplier,
-                    child: Text(supplier),
-                  ))
-              .toList(),
+        return DropdownSearch<String>(
+          selectedItem: _selectedSupplier ?? 'All Suppliers',
+          items: supplierList,
           onChanged: (value) {
             setState(() => _selectedSupplier = value);
             final filter = ref.read(orderSuggestionFilterProvider);
@@ -350,37 +534,70 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                     category: filter.category,
                     brand: filter.brand);
           },
-          decoration: const InputDecoration(
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-            border: OutlineInputBorder(),
-            labelText: 'Supplier',
-            isDense: true,
+          popupProps: PopupProps.menu(
+            showSearchBox: true,
+            searchFieldProps: TextFieldProps(
+              decoration: InputDecoration(
+                hintText: 'Search supplier...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+              ),
+            ),
+            itemBuilder: (context, item, isSelected) {
+              return Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 7.2, // Increased by 20% from 6px to 7.2px
+                ),
+                child: Text(
+                  item,
+                  style: TextStyle(
+                    fontSize: _bodyFontSize *
+                        0.9, // Increased by 20% from 0.75 to 0.9
+                  ),
+                ),
+              );
+            },
+          ),
+          dropdownDecoratorProps: DropDownDecoratorProps(
+            dropdownSearchDecoration: InputDecoration(
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: _smallSpacing,
+                vertical: _isSmallScreen ? 8.0 : 10.0,
+              ),
+              border: const OutlineInputBorder(),
+              labelText: 'Supplier',
+              labelStyle: TextStyle(fontSize: _labelFontSize),
+              isDense: true,
+            ),
           ),
         );
       },
-      loading: () => DropdownButtonFormField<String>(
-        value: 'All Suppliers',
-        items: const [
-          DropdownMenuItem(
-              value: 'All Suppliers', child: Text('All Suppliers')),
-        ],
-        onChanged: (_) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
-          hintText: 'Loading...',
+      loading: () => DropdownSearch<String>(
+        selectedItem: 'All Suppliers',
+        items: const ['All Suppliers'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+            hintText: 'Loading...',
+          ),
         ),
       ),
-      error: (_, __) => DropdownButtonFormField<String>(
-        value: 'All Suppliers',
-        items: const [
-          DropdownMenuItem(
-              value: 'All Suppliers', child: Text('All Suppliers')),
-        ],
-        onChanged: (_) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
+      error: (_, __) => DropdownSearch<String>(
+        selectedItem: 'All Suppliers',
+        items: const ['All Suppliers'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+          ),
         ),
       ),
     );
@@ -395,12 +612,9 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           'All Categories',
           ...categories.map((c) => c['name'] as String)
         ];
-        return DropdownButtonFormField<String>(
-          value: _selectedCategory,
-          items: categoryList
-              .map((category) =>
-                  DropdownMenuItem(value: category, child: Text(category)))
-              .toList(),
+        return DropdownSearch<String>(
+          selectedItem: _selectedCategory,
+          items: categoryList,
           onChanged: (value) {
             setState(() => _selectedCategory = value);
             final filter = ref.read(orderSuggestionFilterProvider);
@@ -410,35 +624,70 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                     category: value,
                     brand: filter.brand);
           },
-          decoration: const InputDecoration(
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-            border: OutlineInputBorder(),
+          popupProps: PopupProps.menu(
+            showSearchBox: true,
+            searchFieldProps: TextFieldProps(
+              decoration: InputDecoration(
+                hintText: 'Search category...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+              ),
+            ),
+            itemBuilder: (context, item, isSelected) {
+              return Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 7.2, // Increased by 20% from 6px to 7.2px
+                ),
+                child: Text(
+                  item,
+                  style: TextStyle(
+                    fontSize: _bodyFontSize *
+                        0.9, // Increased by 20% from 0.75 to 0.9
+                  ),
+                ),
+              );
+            },
+          ),
+          dropdownDecoratorProps: DropDownDecoratorProps(
+            dropdownSearchDecoration: InputDecoration(
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: _smallSpacing,
+                vertical: _isSmallScreen ? 8.0 : 10.0,
+              ),
+              border: const OutlineInputBorder(),
+              labelText: 'Category',
+              labelStyle: TextStyle(fontSize: _labelFontSize),
+              isDense: true,
+            ),
           ),
         );
       },
-      loading: () => DropdownButtonFormField<String>(
-        value: 'All Categories',
-        items: const [
-          DropdownMenuItem(
-              value: 'All Categories', child: Text('All Categories')),
-        ],
-        onChanged: (value) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
-          hintText: 'Loading...',
+      loading: () => DropdownSearch<String>(
+        selectedItem: 'All Categories',
+        items: const ['All Categories'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+            hintText: 'Loading...',
+          ),
         ),
       ),
-      error: (error, stack) => DropdownButtonFormField<String>(
-        value: 'All Categories',
-        items: const [
-          DropdownMenuItem(
-              value: 'All Categories', child: Text('All Categories')),
-        ],
-        onChanged: (value) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
+      error: (error, stack) => DropdownSearch<String>(
+        selectedItem: 'All Categories',
+        items: const ['All Categories'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+          ),
         ),
       ),
     );
@@ -453,12 +702,9 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           'All Brands',
           ...brands.map((b) => b['name'] as String)
         ];
-        return DropdownButtonFormField<String>(
-          value: _selectedBrand,
-          items: brandList
-              .map(
-                  (brand) => DropdownMenuItem(value: brand, child: Text(brand)))
-              .toList(),
+        return DropdownSearch<String>(
+          selectedItem: _selectedBrand,
+          items: brandList,
           onChanged: (value) {
             setState(() => _selectedBrand = value);
             final filter = ref.read(orderSuggestionFilterProvider);
@@ -468,33 +714,70 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                     category: filter.category,
                     brand: value);
           },
-          decoration: const InputDecoration(
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-            border: OutlineInputBorder(),
+          popupProps: PopupProps.menu(
+            showSearchBox: true,
+            searchFieldProps: TextFieldProps(
+              decoration: InputDecoration(
+                hintText: 'Search brand...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+              ),
+            ),
+            itemBuilder: (context, item, isSelected) {
+              return Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 7.2, // Increased by 20% from 6px to 7.2px
+                ),
+                child: Text(
+                  item,
+                  style: TextStyle(
+                    fontSize: _bodyFontSize *
+                        0.9, // Increased by 20% from 0.75 to 0.9
+                  ),
+                ),
+              );
+            },
+          ),
+          dropdownDecoratorProps: DropDownDecoratorProps(
+            dropdownSearchDecoration: InputDecoration(
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: _smallSpacing,
+                vertical: _isSmallScreen ? 8.0 : 10.0,
+              ),
+              border: const OutlineInputBorder(),
+              labelText: 'Brand',
+              labelStyle: TextStyle(fontSize: _labelFontSize),
+              isDense: true,
+            ),
           ),
         );
       },
-      loading: () => DropdownButtonFormField<String>(
-        value: 'All Brands',
-        items: const [
-          DropdownMenuItem(value: 'All Brands', child: Text('All Brands')),
-        ],
-        onChanged: (value) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
-          hintText: 'Loading...',
+      loading: () => DropdownSearch<String>(
+        selectedItem: 'All Brands',
+        items: const ['All Brands'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+            hintText: 'Loading...',
+          ),
         ),
       ),
-      error: (error, stack) => DropdownButtonFormField<String>(
-        value: 'All Brands',
-        items: const [
-          DropdownMenuItem(value: 'All Brands', child: Text('All Brands')),
-        ],
-        onChanged: (value) {},
-        decoration: const InputDecoration(
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-          border: OutlineInputBorder(),
+      error: (error, stack) => DropdownSearch<String>(
+        selectedItem: 'All Brands',
+        items: const ['All Brands'],
+        enabled: false,
+        dropdownDecoratorProps: DropDownDecoratorProps(
+          dropdownSearchDecoration: InputDecoration(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+          ),
         ),
       ),
     );
@@ -526,7 +809,10 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
         _selectedProductIds.contains(product.productId);
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      margin: EdgeInsets.symmetric(
+        horizontal: _smallSpacing,
+        vertical: _isSmallScreen ? 3.0 : 4.0,
+      ),
       elevation: isSelected ? 4 : 1,
       color:
           isSelected ? Theme.of(context).primaryColor.withOpacity(0.1) : null,
@@ -557,7 +843,7 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           }
         },
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: EdgeInsets.all(_isSmallScreen ? 8.0 : _mediumSpacing),
           child: Row(
             children: [
               if (_isMultiSelectMode)
@@ -582,46 +868,96 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(product.productName ?? 'No Name',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 8),
+                    Text(
+                      product.productName ?? 'No Name',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontSize: _titleFontSize,
+                          ),
+                    ),
+                    SizedBox(height: _smallSpacing),
                     Wrap(
-                      spacing: 8.0,
-                      runSpacing: 4.0,
+                      spacing: _isSmallScreen ? 4.0 : 8.0,
+                      runSpacing: _isSmallScreen ? 2.0 : 4.0,
                       children: [
                         if (product.categoryName != null)
                           Chip(
-                              label: Text(product.categoryName!),
-                              backgroundColor: Colors.blue.shade100),
+                            label: Text(
+                              product.categoryName!,
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.blue.shade100,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                         if (product.brandName != null)
                           Chip(
-                              label: Text(product.brandName!),
-                              backgroundColor: Colors.purple.shade100),
+                            label: Text(
+                              product.brandName!,
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.purple.shade100,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                         if (product.supplierName != null)
                           Chip(
-                              label: Text(product.supplierName!),
-                              backgroundColor: Colors.orange.shade100,
-                              labelStyle: const TextStyle(fontSize: 11)),
+                            label: Text(
+                              product.supplierName!,
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.orange.shade100,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                         if (isLowStock)
-                          const Chip(
-                              label: Text('LOW STOCK'),
-                              backgroundColor: Colors.red,
-                              labelStyle: TextStyle(color: Colors.white)),
+                          Chip(
+                            label: Text(
+                              'LOW STOCK',
+                              style: TextStyle(
+                                fontSize: _labelFontSize,
+                                color: Colors.white,
+                              ),
+                            ),
+                            backgroundColor: Colors.red,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                         if (product.mrp != null)
                           Chip(
-                              label: Text('MRP: ₹${product.mrp}'),
-                              backgroundColor: Colors.green.shade100),
+                            label: Text(
+                              'MRP: ₹${product.mrp}',
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.green.shade100,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                         if (product.currentStock != null)
                           Chip(
-                              label: Text('Stock: ${product.currentStock}'),
-                              backgroundColor: Colors.grey.shade200),
+                            label: Text(
+                              'Stock: ${product.currentStock}',
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.grey.shade200,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing,
+                            ),
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: _smallSpacing),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Order Quantity'),
+                        Text(
+                          'Order Quantity',
+                          style: TextStyle(fontSize: _bodyFontSize),
+                        ),
                         _buildQuantitySelector(product, quantityInBasket),
                       ],
                     )
@@ -654,45 +990,61 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
         child: Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(_isSmallScreen ? 16.0 : 24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 product.productName ?? 'Select Quantity',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontSize: _titleFontSize,
+                    ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: _smallSpacing),
               if (product.brandName != null)
                 Text(
                   'Brand: ${product.brandName}',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: _bodyFontSize,
+                      ),
                 ),
               if (product.supplierName != null)
                 Text(
                   'Supplier: ${product.supplierName}',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: _bodyFontSize,
+                      ),
                 ),
-              const SizedBox(height: 24),
+              SizedBox(height: _mediumSpacing),
               TextField(
                 controller: quantityController,
+                style: TextStyle(fontSize: _bodyFontSize),
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Quantity',
+                  labelStyle: TextStyle(fontSize: _labelFontSize),
                   suffixText: product.unit ?? 'Piece',
+                  suffixStyle: TextStyle(fontSize: _bodyFontSize),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: _mediumSpacing,
+                    vertical: _isSmallScreen ? 10.0 : 12.0,
+                  ),
                   border: const OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: _mediumSpacing),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                    child: Text(
+                      'Cancel',
+                      style: TextStyle(fontSize: _bodyFontSize),
+                    ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: _smallSpacing),
                   ElevatedButton(
                     onPressed: () {
                       final quantity =
@@ -702,7 +1054,16 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
                         _addProductToBasket(product, quantity);
                       }
                     },
-                    child: const Text('Add to Basket'),
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: _mediumSpacing,
+                        vertical: _isSmallScreen ? 10.0 : 12.0,
+                      ),
+                    ),
+                    child: Text(
+                      'Add to Basket',
+                      style: TextStyle(fontSize: _bodyFontSize),
+                    ),
                   ),
                 ],
               ),
@@ -759,9 +1120,18 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
   Widget _buildQuantitySelector(
       ProductOrderSuggestion product, int quantityInBasket) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: const Icon(Icons.remove_circle),
+          icon: Icon(
+            Icons.remove_circle,
+            size: _isSmallScreen ? 20.0 : 24.0,
+          ),
+          padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
+          constraints: BoxConstraints(
+            minWidth: _isSmallScreen ? 32.0 : 40.0,
+            minHeight: _isSmallScreen ? 32.0 : 40.0,
+          ),
           onPressed: quantityInBasket > 0
               ? () async {
                   try {
@@ -794,15 +1164,18 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           color: Colors.red,
         ),
         SizedBox(
-          width: 80,
+          width: _isSmallScreen ? 60.0 : 80.0,
           child: TextField(
             controller:
                 _getQuantityController(product.productId, quantityInBasket),
+            style: TextStyle(fontSize: _bodyFontSize),
             textAlign: TextAlign.center,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: _isSmallScreen ? 4.0 : 8.0,
+                vertical: _isSmallScreen ? 6.0 : 8.0,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8.0),
               ),
@@ -819,11 +1192,22 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
             },
           ),
         ),
-        const SizedBox(width: 8),
-        Text(product.unit ?? 'Piece'),
-        const SizedBox(width: 8),
+        SizedBox(width: _isSmallScreen ? 4.0 : 8.0),
+        Text(
+          product.unit ?? 'Piece',
+          style: TextStyle(fontSize: _bodyFontSize),
+        ),
+        SizedBox(width: _isSmallScreen ? 4.0 : 8.0),
         IconButton(
-          icon: const Icon(Icons.add_circle),
+          icon: Icon(
+            Icons.add_circle,
+            size: _isSmallScreen ? 20.0 : 24.0,
+          ),
+          padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
+          constraints: BoxConstraints(
+            minWidth: _isSmallScreen ? 32.0 : 40.0,
+            minHeight: _isSmallScreen ? 32.0 : 40.0,
+          ),
           onPressed: () async {
             try {
               // Plus button behavior:
@@ -1051,6 +1435,283 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
       // Clear the updating flag on error
       _isUpdatingQuantity[product.productId!] = false;
+    }
+  }
+
+  Widget _buildCustomItemsTab() {
+    final basket = ref.watch(basketProvider);
+    final customItems = basket.where((item) => item.type == 'custom').toList();
+
+    if (customItems.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.add_circle_outline,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Custom Items',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tap the + button to add a custom item',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: customItems.length,
+      itemBuilder: (context, index) {
+        final item = customItems[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.orange[100],
+              child: Icon(Icons.edit, color: Colors.orange[800]),
+            ),
+            title: Text(item.name ?? 'Unknown Item'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.supplierName != null)
+                  Text('Supplier: ${item.supplierName}'),
+                Text('Quantity: ${item.quantity ?? 0} ${item.unit ?? ''}'),
+              ],
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: () => _removeCustomItem(item),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAddCustomItemDialog() async {
+    final productNameController = TextEditingController();
+    final quantityController = TextEditingController(text: '1');
+    String? selectedSupplierName;
+    int? selectedSupplierId;
+    List<Map<String, dynamic>> suppliersList = [];
+
+    // Get all suppliers from API (same as order suggestions screen)
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      suppliersList = await apiService.getSuppliers();
+    } catch (e) {
+      print('Error fetching suppliers: $e');
+      // Fallback to suppliers from suggestions if API fails
+      final suggestionsAsync = ref.read(orderSuggestionsProvider);
+      final suggestions = suggestionsAsync.value ?? [];
+      final suppliersFromSuggestions = suggestions
+          .where((s) => s.supplierName != null)
+          .map((s) => s.supplierName!)
+          .toSet()
+          .toList()
+        ..sort();
+      suppliersList =
+          suppliersFromSuggestions.map((name) => {'name': name}).toList();
+    }
+
+    final suppliers = suppliersList.where((s) => s['name'] != null).toList()
+      ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Custom Item'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: productNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Product Name *',
+                  hintText: 'Enter product name',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<Map<String, dynamic>>(
+                decoration: const InputDecoration(
+                  labelText: 'Supplier (Optional)',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<Map<String, dynamic>>(
+                    value: null,
+                    child: Text('None'),
+                  ),
+                  ...suppliers
+                      .map((supplier) => DropdownMenuItem<Map<String, dynamic>>(
+                            value: supplier,
+                            child: Text(supplier['name'] as String),
+                          )),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    selectedSupplierName = value['name'] as String?;
+                    selectedSupplierId = (value['id'] as num?)?.toInt();
+                  } else {
+                    selectedSupplierName = null;
+                    selectedSupplierId = null;
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: quantityController,
+                decoration: const InputDecoration(
+                  labelText: 'Quantity *',
+                  hintText: 'Enter quantity',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final productName = productNameController.text.trim();
+              final quantityStr = quantityController.text.trim();
+              final quantity = int.tryParse(quantityStr);
+
+              if (productName.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Product name is required'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              if (quantity == null || quantity <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid quantity'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              // Store values before closing dialog
+              final finalProductName = productName;
+              final finalQuantity = quantity;
+              final finalSupplierName = selectedSupplierName;
+              final finalSupplierId = selectedSupplierId;
+
+              Navigator.pop(context);
+
+              // Add to basket after dialog is closed
+              _addCustomItemToBasket(
+                productName: finalProductName,
+                supplierName: finalSupplierName,
+                supplierId: finalSupplierId,
+                quantity: finalQuantity,
+              );
+            },
+            child: const Text('Add to Basket'),
+          ),
+        ],
+      ),
+    ).then((_) {
+      // Dispose controllers after dialog is fully closed
+      productNameController.dispose();
+      quantityController.dispose();
+    });
+  }
+
+  Future<void> _addCustomItemToBasket({
+    required String productName,
+    String? supplierName,
+    int? supplierId,
+    required int quantity,
+  }) async {
+    try {
+      final basketNotifier = ref.read(basketProvider.notifier);
+
+      final customItem = POBasketItem(
+        type: 'custom',
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: productName,
+        unit: 'Piece',
+        quantity: quantity,
+        price: 0, // Custom items don't have a price initially
+        supplierId: supplierId,
+        supplierName: supplierName,
+      );
+
+      await basketNotifier.addItem(customItem);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$productName added to basket'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error adding custom item: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeCustomItem(POBasketItem item) async {
+    try {
+      if (item.id != null) {
+        final basketNotifier = ref.read(basketProvider.notifier);
+        await basketNotifier.removeItem(item.id!);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${item.name ?? 'Item'} removed from basket'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error removing item: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 }

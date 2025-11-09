@@ -267,33 +267,43 @@ class _OrderSuggestionsBasketScreenState
     }
 
     if (basketItems.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.shopping_basket_outlined,
-              size: 64,
-              color: Colors.grey[400],
+      // Show empty basket message and ordered items section
+      return Column(
+        children: [
+          // Empty basket message
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.shopping_basket_outlined,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Basket is Empty',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add items from order suggestions to get started',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () => context.go('/order-suggestions'),
+                    icon: const Icon(Icons.add_shopping_cart),
+                    label: const Text('Browse Suggestions'),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Basket is Empty',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Add items from order suggestions to get started',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () => context.go('/order-suggestions'),
-              icon: const Icon(Icons.add_shopping_cart),
-              label: const Text('Browse Suggestions'),
-            ),
-          ],
-        ),
+          ),
+          // Always show ordered items section
+          _buildOrderedItemsSection(),
+        ],
       );
     }
 
@@ -459,10 +469,6 @@ class _OrderSuggestionsBasketScreenState
         supplierInfo != null && supplierInfo.containsKey('phone')
             ? _safeStringFromJson(supplierInfo['phone'])
             : null;
-    final supplierEmail =
-        supplierInfo != null && supplierInfo.containsKey('email')
-            ? _safeStringFromJson(supplierInfo['email'])
-            : null;
 
     final isCollapsed = _collapsedSuppliers.contains(supplierName);
 
@@ -482,19 +488,9 @@ class _OrderSuggestionsBasketScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('$totalItems items • ₹$total'),
-            if (supplierId != null)
-              Text(
-                'Supplier ID: $supplierId',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
             if (supplierPhone != null)
               Text(
                 'Phone: $supplierPhone',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            if (supplierEmail != null)
-              Text(
-                'Email: $supplierEmail',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
           ],
@@ -842,8 +838,41 @@ class _OrderSuggestionsBasketScreenState
   Widget _buildOrderedItemsSection() {
     final orderedItems = ref.watch(orderedItemsProvider);
 
+    // Always show the section header, even if empty
     if (orderedItems.isEmpty) {
-      return const SizedBox.shrink();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(height: 32),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green),
+                const SizedBox(width: 8),
+                Text(
+                  'Ordered Items',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Center(
+              child: Text(
+                'No ordered items yet',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
     }
 
     // Group by supplier
@@ -852,6 +881,20 @@ class _OrderSuggestionsBasketScreenState
       final supplier = item.supplierName ?? 'Unknown Supplier';
       groupedBySupplier.putIfAbsent(supplier, () => []).add(item);
     }
+
+    // Sort suppliers by their most recent order date (descending)
+    final sortedSuppliers = groupedBySupplier.entries.toList()
+      ..sort((a, b) {
+        // Get the most recent date from each supplier's items
+        final aMaxDate = a.value
+            .map((item) => item.orderedDate)
+            .reduce((a, b) => a.isAfter(b) ? a : b);
+        final bMaxDate = b.value
+            .map((item) => item.orderedDate)
+            .reduce((a, b) => a.isAfter(b) ? a : b);
+        // Sort descending (newest first)
+        return bMaxDate.compareTo(aMaxDate);
+      });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -872,8 +915,11 @@ class _OrderSuggestionsBasketScreenState
             ],
           ),
         ),
-        ...groupedBySupplier.entries.map((entry) {
-          return _buildOrderedSupplierGroup(entry.key, entry.value);
+        ...sortedSuppliers.map((entry) {
+          // Sort items within supplier by date descending
+          final sortedItems = List<OrderedItem>.from(entry.value)
+            ..sort((a, b) => b.orderedDate.compareTo(a.orderedDate));
+          return _buildOrderedSupplierGroup(entry.key, sortedItems);
         }),
       ],
     );
@@ -915,10 +961,14 @@ class _OrderSuggestionsBasketScreenState
   Widget _buildOrderedDateGroup(DateTime date, List<OrderedItem> items) {
     final totalCost = items.fold<int>(0, (sum, item) => sum + item.totalCost);
 
+    // Sort items within date group by orderedDate descending (newest first)
+    final sortedItems = List<OrderedItem>.from(items)
+      ..sort((a, b) => b.orderedDate.compareTo(a.orderedDate));
+
     return ExpansionTile(
       title: Text(DateFormat('dd MMM yyyy').format(date)),
       subtitle: Text('${items.length} items • ₹$totalCost'),
-      children: items.map((item) {
+      children: sortedItems.map((item) {
         return ListTile(
           leading: const Icon(Icons.inventory_2, color: Colors.green),
           title: Text(item.name ?? 'Unknown'),
