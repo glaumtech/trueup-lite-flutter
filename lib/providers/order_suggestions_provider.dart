@@ -1,15 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/product_order_suggestion.dart';
 import '../models/po_basket_item.dart';
+import '../models/ordered_item.dart';
 import '../models/request_models.dart';
 import '../models/response_models.dart';
 import '../services/api_service.dart';
+import '../services/persistence_service.dart';
 import '../models/weekly_purchase_history.dart';
 import '../models/order_suggestion_history.dart';
 
 // API Service Provider
 final apiServiceProvider = Provider<ApiService>((ref) {
   return ApiService();
+});
+
+// Persistence Service Provider
+final persistenceServiceProvider = Provider<PersistenceService>((ref) {
+  final service = PersistenceService();
+  service.init(); // Initialize asynchronously
+  return service;
 });
 
 // Filter State
@@ -328,4 +337,101 @@ class BrandsNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {
 final brandsProvider =
     AsyncNotifierProvider<BrandsNotifier, List<Map<String, dynamic>>>(
   BrandsNotifier.new,
+);
+
+// Ordered Items State
+class OrderedItemsNotifier extends Notifier<List<OrderedItem>> {
+  @override
+  List<OrderedItem> build() {
+    // Load from persistence on build
+    _loadFromPersistence();
+    return [];
+  }
+
+  Future<void> _loadFromPersistence() async {
+    try {
+      final persistence = ref.read(persistenceServiceProvider);
+      await persistence.init();
+      final items = await persistence.loadOrderedItems();
+      state = items;
+    } catch (e) {
+      print('Error loading ordered items from persistence: $e');
+    }
+  }
+
+  /// Mark items as ordered
+  Future<void> markAsOrdered(
+    List<POBasketItem> items, {
+    DateTime? orderedDate,
+    String? orderNotes,
+    String? orderNumber,
+  }) async {
+    final date = orderedDate ?? DateTime.now();
+    final orderedItems = items.map((item) {
+      return OrderedItem.fromBasketItem(
+        item,
+        orderedDate: date,
+        orderNotes: orderNotes,
+        orderNumber: orderNumber,
+      );
+    }).toList();
+
+    state = [...state, ...orderedItems];
+
+    // Save to persistence
+    try {
+      final persistence = ref.read(persistenceServiceProvider);
+      await persistence.saveOrderedItems(state);
+    } catch (e) {
+      print('Error saving ordered items: $e');
+    }
+  }
+
+  /// Unmark items as ordered (move back to basket)
+  Future<void> unmarkAsOrdered(List<String> itemIds) async {
+    final itemsToUnmark = state.where((item) => itemIds.contains(item.id)).toList();
+    state = state.where((item) => !itemIds.contains(item.id)).toList();
+
+    // Save to persistence
+    try {
+      final persistence = ref.read(persistenceServiceProvider);
+      await persistence.saveOrderedItems(state);
+    } catch (e) {
+      print('Error saving ordered items: $e');
+    }
+
+    // Return items to basket
+    try {
+      final basketNotifier = ref.read(basketProvider.notifier);
+      for (var orderedItem in itemsToUnmark) {
+        final basketItem = orderedItem.toBasketItem();
+        await basketNotifier.addItem(basketItem);
+      }
+    } catch (e) {
+      print('Error adding items back to basket: $e');
+    }
+  }
+
+  /// Get ordered items by supplier
+  List<OrderedItem> getBySupplier(String supplierName) {
+    return state.where((item) => item.supplierName == supplierName).toList();
+  }
+
+  /// Get ordered items by date range
+  List<OrderedItem> getByDateRange(DateTime startDate, DateTime endDate) {
+    return state.where((item) {
+      return item.orderedDate.isAfter(startDate.subtract(const Duration(days: 1))) &&
+          item.orderedDate.isBefore(endDate.add(const Duration(days: 1)));
+    }).toList();
+  }
+
+  /// Load ordered items from persistence
+  Future<void> loadOrderedItems() async {
+    await _loadFromPersistence();
+  }
+}
+
+final orderedItemsProvider =
+    NotifierProvider<OrderedItemsNotifier, List<OrderedItem>>(
+  OrderedItemsNotifier.new,
 );

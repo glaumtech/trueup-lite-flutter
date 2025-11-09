@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
 import '../../models/po_basket_item.dart';
+import '../../models/ordered_item.dart';
 import '../../models/request_models.dart';
 import '../../providers/order_suggestions_provider.dart';
+import '../../utils/whatsapp_formatter.dart';
 
 class OrderSuggestionsBasketScreen extends ConsumerStatefulWidget {
   const OrderSuggestionsBasketScreen({super.key});
@@ -19,10 +25,32 @@ class _OrderSuggestionsBasketScreenState
   String? _errorMessage;
   Map<String, dynamic>? _groupedItems;
 
+  // Multi-select state
+  bool _isMultiSelectMode = false;
+  final Set<String> _selectedItemIds = {};
+
+  // Collapsed suppliers
+  final Set<String> _collapsedSuppliers = {};
+
+  // Show ordered items
+  bool _showOrderedItems = true;
+
+  // Helper function to safely convert values from int or String to String?
+  String? _safeStringFromJson(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is int) return value.toString();
+    return value.toString();
+  }
+
   @override
   void initState() {
     super.initState();
     _loadBasketItems();
+    // Load ordered items
+    Future.microtask(() {
+      ref.read(orderedItemsProvider.notifier).loadOrderedItems();
+    });
   }
 
   Future<void> _loadBasketItems() async {
@@ -130,6 +158,13 @@ class _OrderSuggestionsBasketScreenState
         ],
       ),
       body: _buildContent(basketItems, basketTotal),
+      floatingActionButton: _isMultiSelectMode && _selectedItemIds.isNotEmpty
+          ? FloatingActionButton.extended(
+              onPressed: _showBulkActionsDialog,
+              icon: const Icon(Icons.more_vert),
+              label: Text('${_selectedItemIds.length} selected'),
+            )
+          : null,
       bottomNavigationBar: basketItems.isNotEmpty
           ? Container(
               padding: const EdgeInsets.all(16),
@@ -356,8 +391,12 @@ class _OrderSuggestionsBasketScreenState
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: supplierGroupsList.length,
+            itemCount: supplierGroupsList.length + (_showOrderedItems ? 1 : 0),
             itemBuilder: (context, index) {
+              // Show ordered items section at the end
+              if (_showOrderedItems && index == supplierGroupsList.length) {
+                return _buildOrderedItemsSection();
+              }
               final group = supplierGroupsList[index] as Map<String, dynamic>;
               final supplierName =
                   group['supplierName'] as String? ?? 'Unknown Supplier';
@@ -416,8 +455,16 @@ class _OrderSuggestionsBasketScreenState
         (items.isNotEmpty ? items.first.supplierId : null);
 
     // Get additional supplier details from supplierInfo
-    final supplierPhone = supplierInfo?['phone'] as String?;
-    final supplierEmail = supplierInfo?['email'] as String?;
+    final supplierPhone =
+        supplierInfo != null && supplierInfo.containsKey('phone')
+            ? _safeStringFromJson(supplierInfo['phone'])
+            : null;
+    final supplierEmail =
+        supplierInfo != null && supplierInfo.containsKey('email')
+            ? _safeStringFromJson(supplierInfo['email'])
+            : null;
+
+    final isCollapsed = _collapsedSuppliers.contains(supplierName);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -452,10 +499,121 @@ class _OrderSuggestionsBasketScreenState
               ),
           ],
         ),
-        initiallyExpanded: true, // Expand by default to show items
+        initiallyExpanded: !isCollapsed,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            if (expanded) {
+              _collapsedSuppliers.remove(supplierName);
+            } else {
+              _collapsedSuppliers.add(supplierName);
+            }
+          });
+        },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.copy),
+              tooltip: 'Copy list for WhatsApp',
+              onPressed: () => _copySupplierList(supplierName, items),
+            ),
+            IconButton(
+              icon: const Icon(Icons.check_circle_outline),
+              tooltip: 'Mark all as ordered',
+              onPressed: () => _markSupplierAsOrdered(supplierName, items),
+            ),
+          ],
+        ),
         children: items.map((item) => _buildBasketItemTile(item)).toList(),
       ),
     );
+  }
+
+  Future<void> _copySupplierList(
+      String supplierName, List<POBasketItem> items) async {
+    // Format: Only Product Name and Quantity
+    final buffer = StringBuffer();
+
+    for (var item in items) {
+      final productName = item.name ?? 'Unknown Product';
+      final quantity = item.quantity ?? 0;
+      buffer.writeln('$productName - $quantity');
+    }
+
+    final formattedText = buffer.toString().trim();
+
+    await Clipboard.setData(ClipboardData(text: formattedText));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$supplierName list copied to clipboard'),
+          action: SnackBarAction(
+            label: 'Share',
+            onPressed: () => Share.share(formattedText),
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _markSupplierAsOrdered(
+    String supplierName,
+    List<POBasketItem> items,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Mark all items as ordered?'),
+        content: Text(
+          'Mark all ${items.length} items from $supplierName as ordered?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark as Ordered'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ref.read(orderedItemsProvider.notifier).markAsOrdered(items);
+
+      // Remove from basket
+      for (var item in items) {
+        if (item.id != null) {
+          await ref.read(basketProvider.notifier).removeItem(item.id!);
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${items.length} items marked as ordered'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
+                      items
+                          .where((i) => i.id != null)
+                          .map((i) => i.id!)
+                          .toList(),
+                    );
+              },
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      _loadBasketItems();
+    }
   }
 
   Widget _buildBasketItemCard(POBasketItem item) {
@@ -466,14 +624,37 @@ class _OrderSuggestionsBasketScreenState
   }
 
   Widget _buildBasketItemTile(POBasketItem item) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: item.isUrgent ? Colors.red[100] : Colors.blue[100],
-        child: Icon(
-          Icons.inventory,
-          color: item.isUrgent ? Colors.red[800] : Colors.blue[800],
-        ),
-      ),
+    final isSelected = _isMultiSelectMode &&
+        item.id != null &&
+        _selectedItemIds.contains(item.id!);
+
+    final tile = ListTile(
+      leading: _isMultiSelectMode
+          ? Checkbox(
+              value: isSelected,
+              onChanged: (value) {
+                if (item.id != null) {
+                  setState(() {
+                    if (value == true) {
+                      _selectedItemIds.add(item.id!);
+                    } else {
+                      _selectedItemIds.remove(item.id!);
+                      if (_selectedItemIds.isEmpty) {
+                        _isMultiSelectMode = false;
+                      }
+                    }
+                  });
+                }
+              },
+            )
+          : CircleAvatar(
+              backgroundColor:
+                  item.isUrgent ? Colors.red[100] : Colors.blue[100],
+              child: Icon(
+                Icons.inventory,
+                color: item.isUrgent ? Colors.red[800] : Colors.blue[800],
+              ),
+            ),
       title: Text(
         item.name ?? 'Unknown Item',
         style: const TextStyle(fontWeight: FontWeight.bold),
@@ -553,8 +734,327 @@ class _OrderSuggestionsBasketScreenState
             ),
         ],
       ),
-      onTap: () => _showItemDetailsDialog(item),
+      onTap: _isMultiSelectMode
+          ? () {
+              if (item.id != null) {
+                setState(() {
+                  if (_selectedItemIds.contains(item.id!)) {
+                    _selectedItemIds.remove(item.id!);
+                    if (_selectedItemIds.isEmpty) {
+                      _isMultiSelectMode = false;
+                    }
+                  } else {
+                    _selectedItemIds.add(item.id!);
+                  }
+                });
+              }
+            }
+          : () => _showItemDetailsDialog(item),
+      onLongPress: () {
+        if (!_isMultiSelectMode && item.id != null) {
+          setState(() {
+            _isMultiSelectMode = true;
+            _selectedItemIds.add(item.id!);
+          });
+        }
+      },
     );
+
+    // Wrap with Slidable if not in multi-select mode
+    if (_isMultiSelectMode) {
+      return tile;
+    }
+
+    return Slidable(
+      key: ValueKey(item.id),
+      endActionPane: ActionPane(
+        motion: const DrawerMotion(),
+        children: [
+          SlidableAction(
+            onPressed: (_) => _markItemAsOrdered(item),
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            icon: Icons.check_circle,
+            label: 'Order',
+          ),
+          SlidableAction(
+            onPressed: (_) => _removeItem(item),
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+            icon: Icons.delete,
+            label: 'Remove',
+          ),
+        ],
+      ),
+      child: tile,
+    );
+  }
+
+  Future<void> _markItemAsOrdered(POBasketItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark as ordered?'),
+        content: Text('Mark "${item.name}" as ordered?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark as Ordered'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ref.read(orderedItemsProvider.notifier).markAsOrdered([item]);
+
+      if (item.id != null) {
+        await ref.read(basketProvider.notifier).removeItem(item.id!);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${item.name} marked as ordered'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                if (item.id != null) {
+                  await ref
+                      .read(orderedItemsProvider.notifier)
+                      .unmarkAsOrdered([item.id!]);
+                }
+              },
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      _loadBasketItems();
+    }
+  }
+
+  Widget _buildOrderedItemsSection() {
+    final orderedItems = ref.watch(orderedItemsProvider);
+
+    if (orderedItems.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Group by supplier
+    final groupedBySupplier = <String, List<OrderedItem>>{};
+    for (var item in orderedItems) {
+      final supplier = item.supplierName ?? 'Unknown Supplier';
+      groupedBySupplier.putIfAbsent(supplier, () => []).add(item);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 32),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.green),
+              const SizedBox(width: 8),
+              Text(
+                'Ordered Items',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        ...groupedBySupplier.entries.map((entry) {
+          return _buildOrderedSupplierGroup(entry.key, entry.value);
+        }),
+      ],
+    );
+  }
+
+  Widget _buildOrderedSupplierGroup(
+      String supplierName, List<OrderedItem> items) {
+    // Group by date
+    final groupedByDate = <DateTime, List<OrderedItem>>{};
+    for (var item in items) {
+      final date = DateTime(
+        item.orderedDate.year,
+        item.orderedDate.month,
+        item.orderedDate.day,
+      );
+      groupedByDate.putIfAbsent(date, () => []).add(item);
+    }
+
+    final sortedDates = groupedByDate.keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ExpansionTile(
+        leading: const CircleAvatar(
+          backgroundColor: Colors.green,
+          child: Icon(Icons.check_circle, color: Colors.white),
+        ),
+        title: Text(supplierName),
+        subtitle: Text('${items.length} items ordered'),
+        children: sortedDates.map((date) {
+          final dateItems = groupedByDate[date]!;
+          return _buildOrderedDateGroup(date, dateItems);
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildOrderedDateGroup(DateTime date, List<OrderedItem> items) {
+    final totalCost = items.fold<int>(0, (sum, item) => sum + item.totalCost);
+
+    return ExpansionTile(
+      title: Text(DateFormat('dd MMM yyyy').format(date)),
+      subtitle: Text('${items.length} items • ₹$totalCost'),
+      children: items.map((item) {
+        return ListTile(
+          leading: const Icon(Icons.inventory_2, color: Colors.green),
+          title: Text(item.name ?? 'Unknown'),
+          subtitle: Text(
+            'Qty: ${item.quantity ?? 0} ${item.unit ?? ''} • ₹${item.price ?? 0} each',
+          ),
+          trailing: Text(
+            '₹${item.totalCost}',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          onTap: () => _unmarkAsOrdered(item),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _unmarkAsOrdered(OrderedItem item) async {
+    if (item.id != null) {
+      await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered([item.id!]);
+      _loadBasketItems();
+    }
+  }
+
+  void _showBulkActionsDialog() {
+    if (_selectedItemIds.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.check_circle),
+              title: const Text('Mark as Ordered'),
+              onTap: () {
+                Navigator.pop(context);
+                _bulkMarkAsOrdered();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete),
+              title: const Text('Remove'),
+              onTap: () {
+                Navigator.pop(context);
+                _bulkRemove();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Cancel'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _bulkMarkAsOrdered() async {
+    final basketItems = ref.read(basketProvider);
+    final selectedItems = basketItems
+        .where((item) => item.id != null && _selectedItemIds.contains(item.id!))
+        .toList();
+
+    if (selectedItems.isEmpty) return;
+
+    await ref.read(orderedItemsProvider.notifier).markAsOrdered(selectedItems);
+
+    // Remove from basket
+    for (var item in selectedItems) {
+      if (item.id != null) {
+        await ref.read(basketProvider.notifier).removeItem(item.id!);
+      }
+    }
+
+    setState(() {
+      _selectedItemIds.clear();
+      _isMultiSelectMode = false;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${selectedItems.length} items marked as ordered'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
+                    selectedItems
+                        .where((i) => i.id != null)
+                        .map((i) => i.id!)
+                        .toList(),
+                  );
+            },
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+
+    _loadBasketItems();
+  }
+
+  Future<void> _bulkRemove() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove items?'),
+        content: Text('Remove ${_selectedItemIds.length} items from basket?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      for (var itemId in _selectedItemIds) {
+        await ref.read(basketProvider.notifier).removeItem(itemId);
+      }
+
+      setState(() {
+        _selectedItemIds.clear();
+        _isMultiSelectMode = false;
+      });
+
+      _loadBasketItems();
+    }
   }
 
   void _handleMenuAction(String action) {

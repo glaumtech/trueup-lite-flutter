@@ -5,6 +5,7 @@ part 'po_basket_item.g.dart';
 @JsonSerializable()
 class POBasketItem {
   final String? type; // 'supplier', 'product', 'custom'
+  @JsonKey(fromJson: _idFromJson, toJson: _idToJson)
   final String? id; // unique identifier
   final String? name;
   final String? unit;
@@ -14,7 +15,7 @@ class POBasketItem {
   final int? supplierId;
   final String? supplierName;
   final int? productId;
-  
+
   // For display purposes
   final bool isUrgent;
   final int? currentStock;
@@ -41,13 +42,23 @@ class POBasketItem {
 
   Map<String, dynamic> toJson() => _$POBasketItemToJson(this);
 
+  // Helper functions for ID serialization (handles both String and int)
+  static String? _idFromJson(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is int) return value.toString();
+    return value.toString();
+  }
+
+  static String? _idToJson(String? value) => value;
+
   // Helper methods
   int get totalCost => (price ?? 0) * (quantity ?? 0);
-  
+
   bool get isSupplierItem => type == 'supplier';
-  
+
   bool get isProductItem => type == 'product';
-  
+
   bool get isCustomItem => type == 'custom';
 
   POBasketItem copyWith({

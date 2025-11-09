@@ -24,6 +24,14 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
 
   String? _selectedCategory;
   String? _selectedBrand;
+  String? _selectedSupplier;
+  bool _inStockOnly = false;
+  double? _minPrice;
+  double? _maxPrice;
+
+  // Multi-select state
+  bool _isMultiSelectMode = false;
+  final Set<int> _selectedProductIds = {};
 
   @override
   void initState() {
@@ -127,7 +135,89 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           ),
         ],
       ),
+      bottomNavigationBar:
+          _isMultiSelectMode ? _buildMultiSelectActionBar() : null,
     );
+  }
+
+  Widget _buildMultiSelectActionBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).primaryColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${_selectedProductIds.length} selected',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _selectedProductIds.clear();
+                      _isMultiSelectMode = false;
+                    });
+                  },
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  label: const Text('Cancel',
+                      style: TextStyle(color: Colors.white)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _selectedProductIds.isEmpty
+                      ? null
+                      : () => _addSelectedToBasket(),
+                  icon: const Icon(Icons.add_shopping_cart),
+                  label: const Text('Add to Basket'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Theme.of(context).primaryColor,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addSelectedToBasket() async {
+    final suggestionsAsync = ref.read(orderSuggestionsProvider);
+    final suggestions = suggestionsAsync.value ?? [];
+
+    final selectedProducts = suggestions
+        .where((product) =>
+            product.productId != null &&
+            _selectedProductIds.contains(product.productId!))
+        .toList();
+
+    if (selectedProducts.isEmpty) return;
+
+    // Show quantity selector for all selected products
+    for (var product in selectedProducts) {
+      _showQuantitySelectorModal(product, defaultQuantity: 1);
+    }
+
+    setState(() {
+      _selectedProductIds.clear();
+      _isMultiSelectMode = false;
+    });
   }
 
   Widget _buildTabs() {
@@ -166,30 +256,132 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(flex: 4, child: _buildCategoryDropdown()),
-              const SizedBox(width: 8),
-              Expanded(flex: 4, child: _buildBrandDropdown()),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 1,
-                child: IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() {
-                      _selectedCategory = 'All Categories';
-                      _selectedBrand = 'All Brands';
-                    });
-                    ref.read(orderSuggestionFilterProvider.notifier).state =
-                        OrderSuggestionFilter();
+          // Filter chips row
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip(
+                  label: 'In Stock Only',
+                  selected: _inStockOnly,
+                  onSelected: (value) {
+                    setState(() => _inStockOnly = value);
                   },
                 ),
-              ),
+                const SizedBox(width: 8),
+                _buildFilterChip(
+                  label: 'Clear Filters',
+                  selected: false,
+                  onSelected: (_) => _clearAllFilters(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(flex: 3, child: _buildCategoryDropdown()),
+              const SizedBox(width: 8),
+              Expanded(flex: 3, child: _buildBrandDropdown()),
+              const SizedBox(width: 8),
+              Expanded(flex: 3, child: _buildSupplierDropdown()),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool selected,
+    required Function(bool) onSelected,
+  }) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: onSelected,
+      selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
+    );
+  }
+
+  void _clearAllFilters() {
+    _searchController.clear();
+    setState(() {
+      _selectedCategory = 'All Categories';
+      _selectedBrand = 'All Brands';
+      _selectedSupplier = 'All Suppliers';
+      _inStockOnly = false;
+      _minPrice = null;
+      _maxPrice = null;
+    });
+    ref.read(orderSuggestionFilterProvider.notifier).state =
+        OrderSuggestionFilter();
+  }
+
+  Widget _buildSupplierDropdown() {
+    final suggestionsAsync = ref.watch(orderSuggestionsProvider);
+
+    return suggestionsAsync.when(
+      data: (suggestions) {
+        final suppliers = suggestions
+            .where((s) => s.supplierName != null)
+            .map((s) => s.supplierName!)
+            .toSet()
+            .toList()
+          ..sort();
+
+        final supplierList = ['All Suppliers', ...suppliers];
+
+        return DropdownButtonFormField<String>(
+          value: _selectedSupplier ?? 'All Suppliers',
+          items: supplierList
+              .map((supplier) => DropdownMenuItem(
+                    value: supplier,
+                    child: Text(supplier),
+                  ))
+              .toList(),
+          onChanged: (value) {
+            setState(() => _selectedSupplier = value);
+            final filter = ref.read(orderSuggestionFilterProvider);
+            ref.read(orderSuggestionFilterProvider.notifier).state =
+                OrderSuggestionFilter(
+                    searchTerm: filter.searchTerm,
+                    category: filter.category,
+                    brand: filter.brand);
+          },
+          decoration: const InputDecoration(
+            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+            border: OutlineInputBorder(),
+            labelText: 'Supplier',
+            isDense: true,
+          ),
+        );
+      },
+      loading: () => DropdownButtonFormField<String>(
+        value: 'All Suppliers',
+        items: const [
+          DropdownMenuItem(
+              value: 'All Suppliers', child: Text('All Suppliers')),
+        ],
+        onChanged: (_) {},
+        decoration: const InputDecoration(
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          border: OutlineInputBorder(),
+          hintText: 'Loading...',
+        ),
+      ),
+      error: (_, __) => DropdownButtonFormField<String>(
+        value: 'All Suppliers',
+        items: const [
+          DropdownMenuItem(
+              value: 'All Suppliers', child: Text('All Suppliers')),
+        ],
+        onChanged: (_) {},
+        decoration: const InputDecoration(
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          border: OutlineInputBorder(),
+        ),
       ),
     );
   }
@@ -329,51 +521,239 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
       orElse: () => const POBasketItem(quantity: 0),
     );
     final quantityInBasket = basketItem.quantity ?? 0;
+    final isSelected = _isMultiSelectMode &&
+        product.productId != null &&
+        _selectedProductIds.contains(product.productId);
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(product.productName ?? 'No Name',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8.0,
-              runSpacing: 4.0,
-              children: [
-                if (product.categoryName != null)
-                  Chip(
-                      label: Text(product.categoryName!),
-                      backgroundColor: Colors.blue.shade100),
-                if (product.brandName != null)
-                  Chip(
-                      label: Text(product.brandName!),
-                      backgroundColor: Colors.purple.shade100),
-                if (isLowStock)
-                  const Chip(
-                      label: Text('LOW STOCK'),
-                      backgroundColor: Colors.red,
-                      labelStyle: TextStyle(color: Colors.white)),
-                if (product.mrp != null)
-                  Chip(
-                      label: Text('MRP: ₹${product.mrp}'),
-                      backgroundColor: Colors.green.shade100),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Order Quantity'),
-                _buildQuantitySelector(product, quantityInBasket),
-              ],
-            )
-          ],
+      elevation: isSelected ? 4 : 1,
+      color:
+          isSelected ? Theme.of(context).primaryColor.withOpacity(0.1) : null,
+      child: InkWell(
+        onLongPress: () {
+          if (!_isMultiSelectMode && product.productId != null) {
+            setState(() {
+              _isMultiSelectMode = true;
+              _selectedProductIds.add(product.productId!);
+            });
+          }
+        },
+        onTap: () {
+          if (_isMultiSelectMode && product.productId != null) {
+            setState(() {
+              if (_selectedProductIds.contains(product.productId!)) {
+                _selectedProductIds.remove(product.productId!);
+                if (_selectedProductIds.isEmpty) {
+                  _isMultiSelectMode = false;
+                }
+              } else {
+                _selectedProductIds.add(product.productId!);
+              }
+            });
+          } else {
+            // Quick add with default quantity 1
+            _showQuantitySelectorModal(product, defaultQuantity: 1);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            children: [
+              if (_isMultiSelectMode)
+                Checkbox(
+                  value: isSelected,
+                  onChanged: (value) {
+                    if (product.productId != null) {
+                      setState(() {
+                        if (value == true) {
+                          _selectedProductIds.add(product.productId!);
+                        } else {
+                          _selectedProductIds.remove(product.productId!);
+                          if (_selectedProductIds.isEmpty) {
+                            _isMultiSelectMode = false;
+                          }
+                        }
+                      });
+                    }
+                  },
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(product.productName ?? 'No Name',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 4.0,
+                      children: [
+                        if (product.categoryName != null)
+                          Chip(
+                              label: Text(product.categoryName!),
+                              backgroundColor: Colors.blue.shade100),
+                        if (product.brandName != null)
+                          Chip(
+                              label: Text(product.brandName!),
+                              backgroundColor: Colors.purple.shade100),
+                        if (product.supplierName != null)
+                          Chip(
+                              label: Text(product.supplierName!),
+                              backgroundColor: Colors.orange.shade100,
+                              labelStyle: const TextStyle(fontSize: 11)),
+                        if (isLowStock)
+                          const Chip(
+                              label: Text('LOW STOCK'),
+                              backgroundColor: Colors.red,
+                              labelStyle: TextStyle(color: Colors.white)),
+                        if (product.mrp != null)
+                          Chip(
+                              label: Text('MRP: ₹${product.mrp}'),
+                              backgroundColor: Colors.green.shade100),
+                        if (product.currentStock != null)
+                          Chip(
+                              label: Text('Stock: ${product.currentStock}'),
+                              backgroundColor: Colors.grey.shade200),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Order Quantity'),
+                        _buildQuantitySelector(product, quantityInBasket),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  void _showQuantitySelectorModal(
+    ProductOrderSuggestion product, {
+    int defaultQuantity = 1,
+  }) {
+    final quantityController = TextEditingController(
+      text: defaultQuantity.toString(),
+    );
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product.productName ?? 'Select Quantity',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              if (product.brandName != null)
+                Text(
+                  'Brand: ${product.brandName}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              if (product.supplierName != null)
+                Text(
+                  'Supplier: ${product.supplierName}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Quantity',
+                  suffixText: product.unit ?? 'Piece',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      final quantity =
+                          int.tryParse(quantityController.text) ?? 0;
+                      if (quantity > 0) {
+                        Navigator.pop(context);
+                        _addProductToBasket(product, quantity);
+                      }
+                    },
+                    child: const Text('Add to Basket'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addProductToBasket(
+    ProductOrderSuggestion product,
+    int quantity,
+  ) async {
+    if (product.productId == null) return;
+
+    try {
+      final basketItem = POBasketItem(
+        id: 'product_${product.productId}',
+        productId: product.productId,
+        name: product.productName,
+        unit: product.unit,
+        quantity: quantity,
+        price: product.supplierPrice?.toInt() ?? 0,
+        type: 'product',
+        supplierId: product.supplierId,
+        supplierName: product.supplierName,
+      );
+
+      final response =
+          await ref.read(basketProvider.notifier).addItem(basketItem);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(response.success
+                ? 'Added to basket'
+                : response.message ?? 'Failed to add'),
+            backgroundColor: response.success ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildQuantitySelector(
