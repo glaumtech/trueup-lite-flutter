@@ -54,6 +54,7 @@ class _OrderSuggestionsBasketScreenState
   }
 
   Future<void> _loadBasketItems() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -94,17 +95,23 @@ class _OrderSuggestionsBasketScreenState
       // This avoids a second API call to /basket since we already have all items from grouped response
       ref.read(basketProvider.notifier).setItems(allItems);
 
-      setState(() {
-        _groupedItems = grouped;
-      });
+      if (mounted) {
+        setState(() {
+          _groupedItems = grouped;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -497,13 +504,15 @@ class _OrderSuggestionsBasketScreenState
         ),
         initiallyExpanded: !isCollapsed,
         onExpansionChanged: (expanded) {
-          setState(() {
-            if (expanded) {
-              _collapsedSuppliers.remove(supplierName);
-            } else {
-              _collapsedSuppliers.add(supplierName);
-            }
-          });
+          if (mounted) {
+            setState(() {
+              if (expanded) {
+                _collapsedSuppliers.remove(supplierName);
+              } else {
+                _collapsedSuppliers.add(supplierName);
+              }
+            });
+          }
         },
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -630,7 +639,7 @@ class _OrderSuggestionsBasketScreenState
           ? Checkbox(
               value: isSelected,
               onChanged: (value) {
-                if (item.id != null) {
+                if (item.id != null && mounted) {
                   setState(() {
                     if (value == true) {
                       _selectedItemIds.add(item.id!);
@@ -733,7 +742,7 @@ class _OrderSuggestionsBasketScreenState
       ),
       onTap: _isMultiSelectMode
           ? () {
-              if (item.id != null) {
+              if (item.id != null && mounted) {
                 setState(() {
                   if (_selectedItemIds.contains(item.id!)) {
                     _selectedItemIds.remove(item.id!);
@@ -748,7 +757,7 @@ class _OrderSuggestionsBasketScreenState
             }
           : () => _showItemDetailsDialog(item),
       onLongPress: () {
-        if (!_isMultiSelectMode && item.id != null) {
+        if (!_isMultiSelectMode && item.id != null && mounted) {
           setState(() {
             _isMultiSelectMode = true;
             _selectedItemIds.add(item.id!);
@@ -1046,10 +1055,12 @@ class _OrderSuggestionsBasketScreenState
       }
     }
 
-    setState(() {
-      _selectedItemIds.clear();
-      _isMultiSelectMode = false;
-    });
+    if (mounted) {
+      setState(() {
+        _selectedItemIds.clear();
+        _isMultiSelectMode = false;
+      });
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1099,10 +1110,12 @@ class _OrderSuggestionsBasketScreenState
         await ref.read(basketProvider.notifier).removeItem(itemId);
       }
 
-      setState(() {
-        _selectedItemIds.clear();
-        _isMultiSelectMode = false;
-      });
+      if (mounted) {
+        setState(() {
+          _selectedItemIds.clear();
+          _isMultiSelectMode = false;
+        });
+      }
 
       _loadBasketItems();
     }
@@ -1150,9 +1163,11 @@ class _OrderSuggestionsBasketScreenState
   Future<void> _clearBasket() async {
     try {
       await ref.read(basketProvider.notifier).clearBasket();
-      setState(() {
-        _groupedItems = null;
-      });
+      if (mounted) {
+        setState(() {
+          _groupedItems = null;
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1178,9 +1193,11 @@ class _OrderSuggestionsBasketScreenState
     if (_groupedItems == null) {
       _loadBasketItems(); // This will load grouped view
     } else {
-      setState(() {
-        _groupedItems = null;
-      });
+      if (mounted) {
+        setState(() {
+          _groupedItems = null;
+        });
+      }
     }
   }
 

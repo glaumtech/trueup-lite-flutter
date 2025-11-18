@@ -15,7 +15,8 @@ class OrderSuggestionsScreen extends ConsumerStatefulWidget {
       _OrderSuggestionsScreenState();
 }
 
-class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen> {
+class _OrderSuggestionsScreenState
+    extends ConsumerState<OrderSuggestionsScreen> {
   final _searchController = TextEditingController();
   // Map to store TextEditingControllers for each product's quantity field
   final Map<int, TextEditingController> _quantityControllers = {};
@@ -138,9 +139,15 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           'Purchase Order Manager',
           style: TextStyle(fontSize: _isSmallScreen ? 16.0 : 18.0),
         ),
-        leading: Icon(
-          Icons.shopping_cart,
-          size: _isSmallScreen ? 20.0 : 24.0,
+        leading: IconButton(
+          icon: Icon(
+            Icons.arrow_back,
+            size: _isSmallScreen ? 20.0 : 24.0,
+          ),
+          onPressed: () {
+            context.go('/');
+          },
+          tooltip: 'Back to Home',
         ),
         actions: [
           // Display basket count badge - clickable to navigate to basket
@@ -198,8 +205,7 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
           Expanded(
             child: suggestionsAsync.when(
               data: (suggestions) => _buildProductList(suggestions),
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, stack) => Center(child: Text('Error: $error')),
             ),
           ),
@@ -320,7 +326,6 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
       _isMultiSelectMode = false;
     });
   }
-
 
   Widget _buildFilterControls() {
     return Padding(
@@ -1450,181 +1455,134 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
     }
   }
 
-
   Future<void> _showAddCustomItemDialog() async {
-    final productNameController = TextEditingController();
-    final quantityController = TextEditingController(text: '1');
-    String? selectedSupplierName;
-    int? selectedSupplierId;
-    List<Map<String, dynamic>> suppliersList = [];
+    List<Map<String, dynamic>> brandsList = [];
 
-    // Get all suppliers from API (same as order suggestions screen)
+    // Get all brands from API
     try {
       final apiService = ref.read(apiServiceProvider);
-      suppliersList = await apiService.getSuppliers();
+      brandsList = await apiService.getBrands();
     } catch (e) {
-      print('Error fetching suppliers: $e');
-      // Fallback to suppliers from suggestions if API fails
+      print('Error fetching brands: $e');
+      // Fallback to brands from suggestions if API fails
       final suggestionsAsync = ref.read(orderSuggestionsProvider);
       final suggestions = suggestionsAsync.value ?? [];
-      final suppliersFromSuggestions = suggestions
-          .where((s) => s.supplierName != null)
-          .map((s) => s.supplierName!)
+      final brandsFromSuggestions = suggestions
+          .where((s) => s.brandName != null)
+          .map((s) => s.brandName!)
           .toSet()
           .toList()
         ..sort();
-      suppliersList =
-          suppliersFromSuggestions.map((name) => {'name': name}).toList();
+      brandsList = brandsFromSuggestions.map((name) => {'name': name}).toList();
     }
 
-    final suppliers = suppliersList.where((s) => s['name'] != null).toList()
+    final brands = brandsList.where((b) => b['name'] != null).toList()
       ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
 
-    await showDialog(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add Custom Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: productNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Product Name *',
-                  hintText: 'Enter product name',
-                  border: OutlineInputBorder(),
-                ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<Map<String, dynamic>>(
-                decoration: const InputDecoration(
-                  labelText: 'Supplier (Optional)',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem<Map<String, dynamic>>(
-                    value: null,
-                    child: Text('None'),
-                  ),
-                  ...suppliers
-                      .map((supplier) => DropdownMenuItem<Map<String, dynamic>>(
-                            value: supplier,
-                            child: Text(supplier['name'] as String),
-                          )),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    selectedSupplierName = value['name'] as String?;
-                    selectedSupplierId = (value['id'] as num?)?.toInt();
-                  } else {
-                    selectedSupplierName = null;
-                    selectedSupplierId = null;
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: quantityController,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity *',
-                  hintText: 'Enter quantity',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.number,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final productName = productNameController.text.trim();
-              final quantityStr = quantityController.text.trim();
-              final quantity = int.tryParse(quantityStr);
-
-              if (productName.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Product name is required'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              if (quantity == null || quantity <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please enter a valid quantity'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              // Store values before closing dialog
-              final finalProductName = productName;
-              final finalQuantity = quantity;
-              final finalSupplierName = selectedSupplierName;
-              final finalSupplierId = selectedSupplierId;
-
-              Navigator.pop(context);
-
-              // Add to basket after dialog is closed
-              _addCustomItemToBasket(
-                productName: finalProductName,
-                supplierName: finalSupplierName,
-                supplierId: finalSupplierId,
-                quantity: finalQuantity,
-              );
-            },
-            child: const Text('Add to Basket'),
-          ),
-        ],
+      builder: (dialogContext) => _AddCustomItemDialog(
+        brands: brands,
       ),
-    ).then((_) {
-      // Dispose controllers after dialog is fully closed
-      productNameController.dispose();
-      quantityController.dispose();
-    });
+    );
+
+    // Process result after dialog is closed
+    if (result != null) {
+      final productName = result['productName'] as String?;
+      final quantity = result['quantity'] as int?;
+      final brand = result['brand'] as Map<String, dynamic>?;
+
+      if (productName != null && quantity != null) {
+        _addCustomItemToBasket(
+          productName: productName,
+          brand: brand,
+          quantity: quantity,
+        );
+      }
+    }
   }
 
   Future<void> _addCustomItemToBasket({
     required String productName,
-    String? supplierName,
-    int? supplierId,
+    Map<String, dynamic>? brand,
     required int quantity,
   }) async {
     try {
       final basketNotifier = ref.read(basketProvider.notifier);
+      final apiService = ref.read(apiServiceProvider);
 
-      final customItem = POBasketItem(
-        type: 'custom',
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: productName,
-        unit: 'Piece',
-        quantity: quantity,
-        price: 0, // Custom items don't have a price initially
-        supplierId: supplierId,
-        supplierName: supplierName,
-      );
+      // If brand is selected, get all suppliers for that brand
+      List<Map<String, dynamic>> suppliers = [];
+      if (brand != null && brand['id'] != null) {
+        try {
+          final brandId = (brand['id'] as num?)?.toInt();
+          if (brandId != null) {
+            suppliers = await apiService.getSuppliers(brandId: brandId);
+          }
+        } catch (e) {
+          print('Error fetching suppliers for brand: $e');
+        }
+      }
 
-      await basketNotifier.addItem(customItem);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$productName added to basket'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
+      // If no suppliers found for the brand (or no brand selected), add as single item without supplier
+      if (suppliers.isEmpty) {
+        final customItem = POBasketItem(
+          type: 'custom',
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          name: productName,
+          unit: 'Piece',
+          quantity: quantity,
+          price: 0, // Custom items don't have a price initially
+          supplierId: null,
+          supplierName: null,
         );
+
+        await basketNotifier.addItem(customItem);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$productName added to basket'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Add one item per supplier (so it appears in all supplier groups)
+        int addedCount = 0;
+        for (var supplier in suppliers) {
+          final supplierId = (supplier['id'] as num?)?.toInt();
+          final supplierName = supplier['name'] as String?;
+
+          final customItem = POBasketItem(
+            type: 'custom',
+            id: '${DateTime.now().millisecondsSinceEpoch}_${supplierId ?? addedCount}',
+            name: productName,
+            unit: 'Piece',
+            quantity: quantity,
+            price: 0, // Custom items don't have a price initially
+            supplierId: supplierId,
+            supplierName: supplierName,
+          );
+
+          await basketNotifier.addItem(customItem);
+          addedCount++;
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                addedCount > 1
+                    ? '$productName added to basket for $addedCount suppliers'
+                    : '$productName added to basket',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1666,5 +1624,133 @@ class _OrderSuggestionsScreenState extends ConsumerState<OrderSuggestionsScreen>
         );
       }
     }
+  }
+}
+
+class _AddCustomItemDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> brands;
+
+  const _AddCustomItemDialog({
+    required this.brands,
+  });
+
+  @override
+  State<_AddCustomItemDialog> createState() => _AddCustomItemDialogState();
+}
+
+class _AddCustomItemDialogState extends State<_AddCustomItemDialog> {
+  late final TextEditingController _productNameController;
+  late final TextEditingController _quantityController;
+  Map<String, dynamic>? _selectedBrand;
+
+  @override
+  void initState() {
+    super.initState();
+    _productNameController = TextEditingController();
+    _quantityController = TextEditingController(text: '1');
+  }
+
+  @override
+  void dispose() {
+    _productNameController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Custom Item'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _productNameController,
+              decoration: const InputDecoration(
+                labelText: 'Product Name *',
+                hintText: 'Enter product name',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<Map<String, dynamic>>(
+              decoration: const InputDecoration(
+                labelText: 'Brand (Optional)',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem<Map<String, dynamic>>(
+                  value: null,
+                  child: Text('None'),
+                ),
+                ...widget.brands
+                    .map((brand) => DropdownMenuItem<Map<String, dynamic>>(
+                          value: brand,
+                          child: Text(brand['name'] as String),
+                        )),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedBrand = value;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _quantityController,
+              decoration: const InputDecoration(
+                labelText: 'Quantity *',
+                hintText: 'Enter quantity',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final productName = _productNameController.text.trim();
+            final quantityStr = _quantityController.text.trim();
+            final quantity = int.tryParse(quantityStr);
+
+            if (productName.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Product name is required'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              return;
+            }
+
+            if (quantity == null || quantity <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please enter a valid quantity'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              return;
+            }
+
+            // Return result with all values
+            Navigator.pop(context, {
+              'productName': productName,
+              'quantity': quantity,
+              'brand': _selectedBrand,
+            });
+          },
+          child: const Text('Add to Basket'),
+        ),
+      ],
+    );
   }
 }
