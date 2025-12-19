@@ -7,9 +7,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
 import '../../models/po_basket_item.dart';
 import '../../models/ordered_item.dart';
-import '../../models/request_models.dart';
 import '../../providers/order_suggestions_provider.dart';
-import '../../utils/whatsapp_formatter.dart';
+import '../../services/api_service.dart';
 
 class OrderSuggestionsBasketScreen extends ConsumerStatefulWidget {
   const OrderSuggestionsBasketScreen({super.key});
@@ -152,14 +151,6 @@ class _OrderSuggestionsBasketScreenState
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                const PopupMenuItem(
-                  value: 'create_po',
-                  child: ListTile(
-                    leading: Icon(Icons.create),
-                    title: Text('Create Purchase Order'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
               ],
             ),
         ],
@@ -170,59 +161,6 @@ class _OrderSuggestionsBasketScreenState
               onPressed: _showBulkActionsDialog,
               icon: const Icon(Icons.more_vert),
               label: Text('${_selectedItemIds.length} selected'),
-            )
-          : null,
-      bottomNavigationBar: basketItems.isNotEmpty
-          ? Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.2),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Total Items: ${basketItems.length}',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          Text(
-                            'Total Cost: ₹$basketTotal',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).primaryColor,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () => _showCreatePODialog(),
-                      icon: const Icon(Icons.create),
-                      label: const Text('Create PO'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             )
           : null,
     );
@@ -466,10 +404,10 @@ class _OrderSuggestionsBasketScreenState
     final total = groupTotalCost ??
         items.fold<int>(0, (sum, item) => sum + (item.totalCost));
 
-    // Get supplier ID from supplierInfo or first item
-    final supplierId = supplierInfo?['id'] ??
-        supplierInfo?['supplierId'] ??
-        (items.isNotEmpty ? items.first.supplierId : null);
+    // Get supplier ID from supplierInfo or first item (for future use)
+    // final supplierId = supplierInfo?['id'] ??
+    //     supplierInfo?['supplierId'] ??
+    //     (items.isNotEmpty ? items.first.supplierId : null);
 
     // Get additional supplier details from supplierInfo
     final supplierPhone =
@@ -558,7 +496,7 @@ class _OrderSuggestionsBasketScreenState
             label: 'Share',
             onPressed: () => Share.share(formattedText),
           ),
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 5),
         ),
       );
     }
@@ -589,36 +527,67 @@ class _OrderSuggestionsBasketScreenState
     );
 
     if (confirmed == true) {
-      await ref.read(orderedItemsProvider.notifier).markAsOrdered(items);
+      try {
+        await ref.read(orderedItemsProvider.notifier).markAsOrdered(items);
 
-      // Remove from basket
-      for (var item in items) {
-        if (item.id != null) {
-          await ref.read(basketProvider.notifier).removeItem(item.id!);
+        // Remove from basket without auto-refresh and track successful removals
+        final List<POBasketItem> successfullyRemovedItems = [];
+        for (var item in items) {
+          if (item.id != null) {
+            try {
+              final response = await ref
+                  .read(basketProvider.notifier)
+                  .removeItemWithoutRefresh(item.id!);
+              if (response.success) {
+                successfullyRemovedItems.add(item);
+              }
+            } catch (e) {
+              print('Error removing item ${item.name} from basket: $e');
+            }
+          }
+        }
+
+        // Remove only successfully removed items from local state
+        if (mounted) {
+          for (var item in successfullyRemovedItems) {
+            _removeItemFromLocalState(item);
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${items.length} items marked as ordered'),
+              action: SnackBarAction(
+                label: 'Undo',
+                onPressed: () async {
+                  await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
+                        items
+                            .where((i) => i.id != null)
+                            .map((i) => i.id!)
+                            .toList(),
+                      );
+                  // Refresh after undo to reload the items
+                  if (mounted) {
+                    _loadBasketItems();
+                  }
+                },
+              ),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error marking items as ordered: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
         }
       }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${items.length} items marked as ordered'),
-            action: SnackBarAction(
-              label: 'Undo',
-              onPressed: () async {
-                await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
-                      items
-                          .where((i) => i.id != null)
-                          .map((i) => i.id!)
-                          .toList(),
-                    );
-              },
-            ),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-
-      _loadBasketItems();
     }
   }
 
@@ -777,6 +746,13 @@ class _OrderSuggestionsBasketScreenState
         motion: const DrawerMotion(),
         children: [
           SlidableAction(
+            onPressed: (_) => _showEditItemDialog(item),
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+            icon: Icons.edit,
+            label: 'Edit',
+          ),
+          SlidableAction(
             onPressed: (_) => _markItemAsOrdered(item),
             backgroundColor: Colors.green,
             foregroundColor: Colors.white,
@@ -794,6 +770,89 @@ class _OrderSuggestionsBasketScreenState
       ),
       child: tile,
     );
+  }
+
+  Future<void> _markItemAsOrderedFromDialog(POBasketItem item) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark as ordered?'),
+        content: Text('Mark "${item.name}" as ordered?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Mark as Ordered'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ref.read(orderedItemsProvider.notifier).markAsOrdered([item]);
+
+        if (item.id != null) {
+          final response = await ref
+              .read(basketProvider.notifier)
+              .removeItemWithoutRefresh(item.id!);
+
+          // Only remove from local state if API call was successful
+          if (response.success && mounted) {
+            _removeItemFromLocalState(item);
+          } else if (!response.success) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Failed to remove item from basket: ${response.message ?? 'Unknown error'}'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return;
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${item.name} marked as ordered'),
+              action: SnackBarAction(
+                label: 'Undo',
+                onPressed: () async {
+                  if (item.id != null) {
+                    await ref
+                        .read(orderedItemsProvider.notifier)
+                        .unmarkAsOrdered([item.id!]);
+                    // Refresh after undo to reload the item
+                    if (mounted) {
+                      _loadBasketItems();
+                    }
+                  }
+                },
+              ),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error marking item as ordered: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _markItemAsOrdered(POBasketItem item) async {
@@ -816,32 +875,65 @@ class _OrderSuggestionsBasketScreenState
     );
 
     if (confirmed == true) {
-      await ref.read(orderedItemsProvider.notifier).markAsOrdered([item]);
+      try {
+        await ref.read(orderedItemsProvider.notifier).markAsOrdered([item]);
 
-      if (item.id != null) {
-        await ref.read(basketProvider.notifier).removeItem(item.id!);
-      }
+        if (item.id != null) {
+          final response = await ref
+              .read(basketProvider.notifier)
+              .removeItemWithoutRefresh(item.id!);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.name} marked as ordered'),
-            action: SnackBarAction(
-              label: 'Undo',
-              onPressed: () async {
-                if (item.id != null) {
-                  await ref
-                      .read(orderedItemsProvider.notifier)
-                      .unmarkAsOrdered([item.id!]);
-                }
-              },
+          // Only remove from local state if API call was successful
+          if (response.success && mounted) {
+            _removeItemFromLocalState(item);
+          } else if (!response.success) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Failed to remove item from basket: ${response.message ?? 'Unknown error'}'),
+                  backgroundColor: Colors.orange,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return;
+          }
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${item.name} marked as ordered'),
+              action: SnackBarAction(
+                label: 'Undo',
+                onPressed: () async {
+                  if (item.id != null) {
+                    await ref
+                        .read(orderedItemsProvider.notifier)
+                        .unmarkAsOrdered([item.id!]);
+                    // Refresh after undo to reload the item
+                    if (mounted) {
+                      _loadBasketItems();
+                    }
+                  }
+                },
+              ),
+              duration: const Duration(seconds: 5),
             ),
-            duration: const Duration(seconds: 5),
-          ),
-        );
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error marking item as ordered: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
-
-      _loadBasketItems();
     }
   }
 
@@ -998,7 +1090,10 @@ class _OrderSuggestionsBasketScreenState
   Future<void> _unmarkAsOrdered(OrderedItem item) async {
     if (item.id != null) {
       await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered([item.id!]);
-      _loadBasketItems();
+      // Refresh basket immediately after API success
+      if (mounted) {
+        _loadBasketItems();
+      }
     }
   }
 
@@ -1046,43 +1141,76 @@ class _OrderSuggestionsBasketScreenState
 
     if (selectedItems.isEmpty) return;
 
-    await ref.read(orderedItemsProvider.notifier).markAsOrdered(selectedItems);
+    try {
+      await ref
+          .read(orderedItemsProvider.notifier)
+          .markAsOrdered(selectedItems);
 
-    // Remove from basket
-    for (var item in selectedItems) {
-      if (item.id != null) {
-        await ref.read(basketProvider.notifier).removeItem(item.id!);
+      // Remove from basket without auto-refresh and track successful removals
+      final List<POBasketItem> successfullyRemovedItems = [];
+      for (var item in selectedItems) {
+        if (item.id != null) {
+          try {
+            final response = await ref
+                .read(basketProvider.notifier)
+                .removeItemWithoutRefresh(item.id!);
+            if (response.success) {
+              successfullyRemovedItems.add(item);
+            }
+          } catch (e) {
+            print('Error removing item ${item.name} from basket: $e');
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedItemIds.clear();
+          _isMultiSelectMode = false;
+        });
+      }
+
+      // Remove only successfully removed items from local state
+      if (mounted) {
+        for (var item in successfullyRemovedItems) {
+          _removeItemFromLocalState(item);
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${selectedItems.length} items marked as ordered'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
+                      selectedItems
+                          .where((i) => i.id != null)
+                          .map((i) => i.id!)
+                          .toList(),
+                    );
+                // Refresh after undo to reload the items
+                if (mounted) {
+                  _loadBasketItems();
+                }
+              },
+            ),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error marking items as ordered: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     }
-
-    if (mounted) {
-      setState(() {
-        _selectedItemIds.clear();
-        _isMultiSelectMode = false;
-      });
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${selectedItems.length} items marked as ordered'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () async {
-              await ref.read(orderedItemsProvider.notifier).unmarkAsOrdered(
-                    selectedItems
-                        .where((i) => i.id != null)
-                        .map((i) => i.id!)
-                        .toList(),
-                  );
-            },
-          ),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
-
-    _loadBasketItems();
   }
 
   Future<void> _bulkRemove() async {
@@ -1106,18 +1234,82 @@ class _OrderSuggestionsBasketScreenState
     );
 
     if (confirmed == true) {
-      for (var itemId in _selectedItemIds) {
-        await ref.read(basketProvider.notifier).removeItem(itemId);
-      }
+      try {
+        final basketItems = ref.read(basketProvider);
+        final itemsToRemove = basketItems
+            .where((item) =>
+                item.id != null && _selectedItemIds.contains(item.id!))
+            .toList();
 
-      if (mounted) {
-        setState(() {
-          _selectedItemIds.clear();
-          _isMultiSelectMode = false;
-        });
-      }
+        // Remove from API without auto-refresh and track successful removals
+        final List<POBasketItem> successfullyRemovedItems = [];
+        final List<String> failedRemovals = [];
 
-      _loadBasketItems();
+        for (var item in itemsToRemove) {
+          if (item.id != null) {
+            try {
+              final response = await ref
+                  .read(basketProvider.notifier)
+                  .removeItemWithoutRefresh(item.id!);
+              if (response.success) {
+                successfullyRemovedItems.add(item);
+              } else {
+                failedRemovals.add(item.name ?? 'Unknown item');
+              }
+            } catch (e) {
+              failedRemovals.add(item.name ?? 'Unknown item');
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _selectedItemIds.clear();
+            _isMultiSelectMode = false;
+          });
+        }
+
+        // Remove only successfully removed items from local state
+        if (mounted && successfullyRemovedItems.isNotEmpty) {
+          for (var item in successfullyRemovedItems) {
+            _removeItemFromLocalState(item);
+          }
+        }
+
+        if (mounted) {
+          if (successfullyRemovedItems.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    '${successfullyRemovedItems.length} items removed from basket'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+
+          if (failedRemovals.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    'Failed to remove ${failedRemovals.length} items: ${failedRemovals.join(', ')}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error removing items: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -1128,9 +1320,6 @@ class _OrderSuggestionsBasketScreenState
         break;
       case 'group_view':
         _toggleGroupView();
-        break;
-      case 'create_po':
-        _showCreatePODialog();
         break;
     }
   }
@@ -1174,6 +1363,7 @@ class _OrderSuggestionsBasketScreenState
           const SnackBar(
             content: Text('Basket cleared successfully'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
           ),
         );
       }
@@ -1183,6 +1373,7 @@ class _OrderSuggestionsBasketScreenState
           SnackBar(
             content: Text('Error clearing basket: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -1197,62 +1388,6 @@ class _OrderSuggestionsBasketScreenState
         setState(() {
           _groupedItems = null;
         });
-      }
-    }
-  }
-
-  void _showCreatePODialog() {
-    final basketItems = ref.read(basketProvider);
-    if (basketItems.isEmpty) return;
-
-    showDialog(
-      context: context,
-      builder: (context) => _CreatePODialog(
-        basketItems: basketItems,
-        onCreatePO: _createPurchaseOrder,
-      ),
-    );
-  }
-
-  Future<void> _createPurchaseOrder(
-      CreateBasketPurchaseOrderRequest request) async {
-    try {
-      final response = await ref
-          .read(basketProvider.notifier)
-          .createPurchaseOrderFromBasket(request);
-
-      if (mounted) {
-        if (response.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Purchase order created: ${response.orderNumber ?? 'Unknown'}'),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          if (request.clearBasketAfterOrder) {
-            setState(() {
-              _groupedItems = null;
-            });
-          }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: ${response.message ?? 'Unknown error'}'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error creating purchase order: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
   }
@@ -1286,6 +1421,40 @@ class _OrderSuggestionsBasketScreenState
             child: const Text('Close'),
           ),
           TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _showEditItemDialog(item);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.blue,
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.edit, size: 18),
+                SizedBox(width: 4),
+                Text('Edit'),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await _markItemAsOrderedFromDialog(item);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.green,
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, size: 18),
+                SizedBox(width: 4),
+                Text('Mark as Ordered'),
+              ],
+            ),
+          ),
+          TextButton(
             onPressed: () {
               Navigator.of(context).pop();
               _removeItem(item);
@@ -1316,19 +1485,301 @@ class _OrderSuggestionsBasketScreenState
     );
   }
 
+  Future<void> _showEditItemDialog(POBasketItem item) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => _EditItemDialog(
+        item: item,
+        apiService: ref.read(apiServiceProvider),
+      ),
+    );
+
+    if (result != null && mounted) {
+      final updatedName = result['name'] as String?;
+      final updatedQuantity = result['quantity'] as int?;
+      final updatedPrice = result['price'] as int?;
+      final selectedBrand = result['brand'] as Map<String, dynamic>?;
+
+      if (updatedName != null &&
+          updatedQuantity != null &&
+          updatedPrice != null) {
+        await _updateBasketItemWithBrand(
+          item,
+          updatedName,
+          updatedQuantity,
+          updatedPrice,
+          selectedBrand,
+        );
+      }
+    }
+  }
+
+  Future<void> _updateBasketItemWithBrand(
+    POBasketItem originalItem,
+    String newName,
+    int newQuantity,
+    int newPrice,
+    Map<String, dynamic>? selectedBrand,
+  ) async {
+    if (originalItem.id == null) return;
+
+    try {
+      final basketNotifier = ref.read(basketProvider.notifier);
+      final apiService = ref.read(apiServiceProvider);
+
+      // First, remove the original item
+      final removeResponse =
+          await basketNotifier.removeItemWithoutRefresh(originalItem.id!);
+
+      // Only proceed if removal was successful
+      if (!removeResponse.success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Failed to update item: ${removeResponse.message ?? 'Unknown error'}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+
+      _removeItemFromLocalState(originalItem);
+
+      // If brand is selected, get all suppliers for that brand
+      List<Map<String, dynamic>> suppliers = [];
+      if (selectedBrand != null && selectedBrand['id'] != null) {
+        try {
+          final brandId = (selectedBrand['id'] as num?)?.toInt();
+          if (brandId != null) {
+            suppliers = await apiService.getSuppliers(brandId: brandId);
+          }
+        } catch (e) {
+          print('Error fetching suppliers for brand: $e');
+        }
+      }
+
+      // If no suppliers found for the brand (or no brand selected), add as single item without supplier
+      if (suppliers.isEmpty) {
+        final updatedItem = originalItem.copyWith(
+          name: newName,
+          quantity: newQuantity,
+          price: newPrice,
+          supplierId: null,
+          supplierName: null,
+        );
+
+        final response = await basketNotifier.addItem(updatedItem);
+        if (response.success) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('$newName updated successfully'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+          // Refresh to get updated state
+          _loadBasketItems();
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    'Failed to update item: ${response.message ?? 'Unknown error'}'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          }
+        }
+      } else {
+        // Add one item per supplier (so it appears in all supplier groups)
+        int addedCount = 0;
+        for (var supplier in suppliers) {
+          final supplierId = (supplier['id'] as num?)?.toInt();
+          final supplierName = supplier['name'] as String?;
+
+          final updatedItem = originalItem.copyWith(
+            name: newName,
+            quantity: newQuantity,
+            price: newPrice,
+            supplierId: supplierId,
+            supplierName: supplierName,
+            id: '${DateTime.now().millisecondsSinceEpoch}_${supplierId ?? addedCount}',
+          );
+
+          await basketNotifier.addItem(updatedItem);
+          addedCount++;
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                addedCount > 1
+                    ? '$newName updated and added to $addedCount supplier groups'
+                    : '$newName updated successfully',
+              ),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+        // Refresh to get updated state
+        _loadBasketItems();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating item: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Remove item from local state (both basketProvider and _groupedItems)
+  void _removeItemFromLocalState(POBasketItem item) {
+    if (item.id == null) return;
+
+    // Remove from basket provider state
+    final currentBasket = ref.read(basketProvider);
+    final updatedBasket =
+        currentBasket.where((basketItem) => basketItem.id != item.id).toList();
+    ref.read(basketProvider.notifier).setItems(updatedBasket);
+
+    // Remove from grouped items structure
+    if (_groupedItems != null) {
+      final groupedData = Map<String, dynamic>.from(_groupedItems!);
+      final supplierGroupsList =
+          groupedData['supplierGroups'] as List<dynamic>? ?? [];
+
+      // Update supplier groups by removing the item
+      for (var group in supplierGroupsList) {
+        if (group is Map<String, dynamic>) {
+          final itemsRaw = group['items'] as List<dynamic>?;
+          if (itemsRaw != null) {
+            // Remove the item from this supplier's items
+            itemsRaw.removeWhere((itemJson) {
+              try {
+                final basketItem = itemJson is Map<String, dynamic>
+                    ? POBasketItem.fromJson(itemJson)
+                    : POBasketItem.fromJson(
+                        Map<String, dynamic>.from(itemJson));
+                return basketItem.id == item.id;
+              } catch (e) {
+                return false;
+              }
+            });
+
+            // Update group totals
+            final remainingItems = itemsRaw
+                .map((itemJson) {
+                  try {
+                    return itemJson is Map<String, dynamic>
+                        ? POBasketItem.fromJson(itemJson)
+                        : POBasketItem.fromJson(
+                            Map<String, dynamic>.from(itemJson));
+                  } catch (e) {
+                    return null;
+                  }
+                })
+                .where((item) => item != null)
+                .cast<POBasketItem>()
+                .toList();
+
+            group['totalItems'] = remainingItems.length;
+            group['totalCost'] = remainingItems.fold<int>(
+                0, (sum, item) => sum + item.totalCost);
+          }
+        }
+      }
+
+      // Remove empty supplier groups
+      supplierGroupsList.removeWhere((group) {
+        if (group is Map<String, dynamic>) {
+          final itemsRaw = group['items'] as List<dynamic>?;
+          return itemsRaw == null || itemsRaw.isEmpty;
+        }
+        return false;
+      });
+
+      // Update overall totals
+      final allItems = <POBasketItem>[];
+      for (var group in supplierGroupsList) {
+        if (group is Map<String, dynamic>) {
+          final itemsRaw = group['items'] as List<dynamic>?;
+          if (itemsRaw != null) {
+            for (var itemJson in itemsRaw) {
+              try {
+                final basketItem = itemJson is Map<String, dynamic>
+                    ? POBasketItem.fromJson(itemJson)
+                    : POBasketItem.fromJson(
+                        Map<String, dynamic>.from(itemJson));
+                allItems.add(basketItem);
+              } catch (e) {
+                // Skip invalid items
+              }
+            }
+          }
+        }
+      }
+
+      groupedData['totalItems'] = allItems.length;
+      groupedData['totalCost'] =
+          allItems.fold<int>(0, (sum, item) => sum + item.totalCost);
+      groupedData['totalSuppliers'] = supplierGroupsList.length;
+      groupedData['supplierGroups'] = supplierGroupsList;
+
+      setState(() {
+        _groupedItems = groupedData;
+      });
+    }
+  }
+
   Future<void> _removeItem(POBasketItem item) async {
     if (item.id == null) return;
 
     try {
-      await ref.read(basketProvider.notifier).removeItem(item.id!);
+      // Use removeItemWithoutRefresh to avoid automatic page refresh
+      final response = await ref
+          .read(basketProvider.notifier)
+          .removeItemWithoutRefresh(item.id!);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.name} removed from basket'),
-            backgroundColor: Colors.green,
-          ),
-        );
+      // Only remove item from local state if API call was successful
+      if (response.success) {
+        if (mounted) {
+          _removeItemFromLocalState(item);
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${item.name} removed from basket'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } else {
+        // API call failed, show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Failed to remove item: ${response.message ?? 'Unknown error'}'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -1336,6 +1787,7 @@ class _OrderSuggestionsBasketScreenState
           SnackBar(
             content: Text('Error removing item: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -1343,150 +1795,253 @@ class _OrderSuggestionsBasketScreenState
   }
 }
 
-class _CreatePODialog extends StatefulWidget {
-  final List<POBasketItem> basketItems;
-  final Function(CreateBasketPurchaseOrderRequest) onCreatePO;
+class _EditItemDialog extends StatefulWidget {
+  final POBasketItem item;
+  final ApiService apiService;
 
-  const _CreatePODialog({
-    required this.basketItems,
-    required this.onCreatePO,
+  const _EditItemDialog({
+    required this.item,
+    required this.apiService,
   });
 
   @override
-  State<_CreatePODialog> createState() => _CreatePODialogState();
+  State<_EditItemDialog> createState() => _EditItemDialogState();
 }
 
-class _CreatePODialogState extends State<_CreatePODialog> {
-  final _notesController = TextEditingController();
-  final _deliveryDateController = TextEditingController();
-  String _priority = 'MEDIUM';
-  bool _clearBasketAfterOrder = true;
+class _EditItemDialogState extends State<_EditItemDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _quantityController;
+  late final TextEditingController _priceController;
+
+  List<Map<String, dynamic>> _brands = [];
+  Map<String, dynamic>? _selectedBrand;
+  bool _isLoadingBrands = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.item.name ?? '');
+    _quantityController =
+        TextEditingController(text: widget.item.quantity?.toString() ?? '1');
+    _priceController =
+        TextEditingController(text: widget.item.price?.toString() ?? '0');
+
+    // Add listeners to update total cost in real-time
+    _quantityController.addListener(_updateTotalCost);
+    _priceController.addListener(_updateTotalCost);
+
+    _loadBrands();
+  }
+
+  void _updateTotalCost() {
+    setState(() {
+      // This will trigger rebuild and recalculate _calculateTotalCost()
+    });
+  }
+
+  @override
+  void dispose() {
+    _quantityController.removeListener(_updateTotalCost);
+    _priceController.removeListener(_updateTotalCost);
+    _nameController.dispose();
+    _quantityController.dispose();
+    _priceController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBrands() async {
+    setState(() {
+      _isLoadingBrands = true;
+    });
+
+    try {
+      final brands = await widget.apiService.getBrands();
+      setState(() {
+        _brands = brands.where((b) => b['name'] != null).toList()
+          ..sort(
+              (a, b) => (a['name'] as String).compareTo(b['name'] as String));
+        _isLoadingBrands = false;
+      });
+    } catch (e) {
+      print('Error loading brands: $e');
+      setState(() {
+        _isLoadingBrands = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final totalCost =
-        widget.basketItems.fold(0, (sum, item) => sum + item.totalCost);
-
     return AlertDialog(
-      title: const Text('Create Purchase Order'),
+      title: const Text('Edit Item'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Summary
+            // Item Name
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Product Name *',
+                hintText: 'Enter product name',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+
+            // Brand Dropdown (similar to add custom item)
+            if (_isLoadingBrands)
+              const Center(child: CircularProgressIndicator())
+            else
+              DropdownButtonFormField<Map<String, dynamic>>(
+                decoration: const InputDecoration(
+                  labelText: 'Brand (Optional)',
+                  border: OutlineInputBorder(),
+                ),
+                value: _selectedBrand,
+                items: [
+                  const DropdownMenuItem<Map<String, dynamic>>(
+                    value: null,
+                    child: Text('None'),
+                  ),
+                  ..._brands
+                      .map((brand) => DropdownMenuItem<Map<String, dynamic>>(
+                            value: brand,
+                            child: Text(brand['name'] as String),
+                          )),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _selectedBrand = value;
+                  });
+                },
+              ),
+            const SizedBox(height: 16),
+
+            // Quantity
+            TextField(
+              controller: _quantityController,
+              decoration: const InputDecoration(
+                labelText: 'Quantity *',
+                hintText: 'Enter quantity',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+
+            // Price
+            TextField(
+              controller: _priceController,
+              decoration: const InputDecoration(
+                labelText: 'Price per Unit (₹)',
+                hintText: 'Enter price',
+                border: OutlineInputBorder(),
+                prefixText: '₹ ',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+
+            // Total Cost Display
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.blue[50],
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue[200]!),
               ),
-              child: Column(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Order Summary',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                  const Text(
+                    'Total Cost:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text('${widget.basketItems.length} items • ₹$totalCost'),
+                  Text(
+                    '₹${_calculateTotalCost()}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Colors.blue[800],
+                    ),
+                  ),
                 ],
               ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Notes
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'Notes (Optional)',
-                hintText: 'Add any special instructions...',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-
-            const SizedBox(height: 16),
-
-            // Expected Delivery Date
-            TextField(
-              controller: _deliveryDateController,
-              decoration: const InputDecoration(
-                labelText: 'Expected Delivery Date (Optional)',
-                hintText: 'YYYY-MM-DD',
-                border: OutlineInputBorder(),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Priority
-            DropdownButtonFormField<String>(
-              value: _priority,
-              decoration: const InputDecoration(
-                labelText: 'Priority',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'LOW', child: Text('Low')),
-                DropdownMenuItem(value: 'MEDIUM', child: Text('Medium')),
-                DropdownMenuItem(value: 'HIGH', child: Text('High')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  _priority = value ?? 'MEDIUM';
-                });
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            // Clear basket option
-            CheckboxListTile(
-              title: const Text('Clear basket after creating order'),
-              value: _clearBasketAfterOrder,
-              onChanged: (value) {
-                setState(() {
-                  _clearBasketAfterOrder = value ?? true;
-                });
-              },
-              contentPadding: EdgeInsets.zero,
             ),
           ],
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: () {
-            final request = CreateBasketPurchaseOrderRequest(
-              notes: _notesController.text.trim().isEmpty
-                  ? null
-                  : _notesController.text.trim(),
-              expectedDeliveryDate: _deliveryDateController.text.trim().isEmpty
-                  ? null
-                  : _deliveryDateController.text.trim(),
-              priority: _priority,
-              clearBasketAfterOrder: _clearBasketAfterOrder,
-            );
-
-            Navigator.of(context).pop();
-            widget.onCreatePO(request);
-          },
-          child: const Text('Create PO'),
+          onPressed: _validateAndSave,
+          child: const Text('Update'),
         ),
       ],
     );
   }
 
-  @override
-  void dispose() {
-    _notesController.dispose();
-    _deliveryDateController.dispose();
-    super.dispose();
+  int _calculateTotalCost() {
+    final quantity = int.tryParse(_quantityController.text.trim()) ?? 0;
+    final price = int.tryParse(_priceController.text.trim()) ?? 0;
+    return quantity * price;
+  }
+
+  void _validateAndSave() {
+    final name = _nameController.text.trim();
+    final quantityStr = _quantityController.text.trim();
+    final priceStr = _priceController.text.trim();
+
+    // Validation
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Product name is required'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
+    final quantity = int.tryParse(quantityStr);
+    if (quantity == null || quantity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid quantity (greater than 0)'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
+    final price = int.tryParse(priceStr);
+    if (price == null || price < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid price (0 or greater)'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+        ),
+      );
+      return;
+    }
+
+    // Return the updated values
+    Navigator.pop(context, {
+      'name': name,
+      'quantity': quantity,
+      'price': price,
+      'brand': _selectedBrand,
+    });
   }
 }

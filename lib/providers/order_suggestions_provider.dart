@@ -26,14 +26,15 @@ class OrderSuggestionFilter {
   final String? searchTerm;
   final String? category;
   final String? brand;
+  final String? supplier;
 
-  OrderSuggestionFilter({this.searchTerm, this.category, this.brand});
+  OrderSuggestionFilter({this.searchTerm, this.category, this.brand, this.supplier});
 }
 
 final orderSuggestionFilterProvider =
     StateProvider<OrderSuggestionFilter>((ref) {
   return OrderSuggestionFilter(
-      searchTerm: '', category: 'All Categories', brand: 'All Brands');
+      searchTerm: '', category: 'All Categories', brand: 'All Brands', supplier: 'All Suppliers');
 });
 
 // Order Suggestions State
@@ -59,7 +60,7 @@ class OrderSuggestionsNotifier
     final filter = ref.watch(orderSuggestionFilterProvider);
     final filtered = _applyFilters(_allSuggestions!, filter);
     print(
-        '🔍 Filtered to ${filtered.length} suggestions (filter: category=${filter.category}, brand=${filter.brand}, search=${filter.searchTerm})');
+        '🔍 Filtered to ${filtered.length} suggestions (filter: category=${filter.category}, brand=${filter.brand}, supplier=${filter.supplier}, search=${filter.searchTerm})');
     return filtered;
   }
 
@@ -89,7 +90,10 @@ class OrderSuggestionsNotifier
       final brandMatch = filter.brand == null ||
           filter.brand == 'All Brands' ||
           suggestion.brandName == filter.brand;
-      return searchTermMatch && categoryMatch && brandMatch;
+      final supplierMatch = filter.supplier == null ||
+          filter.supplier == 'All Suppliers' ||
+          suggestion.supplierName == filter.supplier;
+      return searchTermMatch && categoryMatch && brandMatch && supplierMatch;
     }).toList();
     
     // Sort by product name (case-insensitive)
@@ -143,6 +147,19 @@ class BasketNotifier extends Notifier<List<POBasketItem>> {
       if (response.success) {
         await loadBasketItems(); // Refresh the list
       }
+      return response;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Remove item from basket without triggering auto-refresh
+  /// Useful when the caller wants to handle state updates manually
+  Future<BasketOperationResponse> removeItemWithoutRefresh(String itemId) async {
+    try {
+      final response =
+          await ref.read(apiServiceProvider).removeFromBasket(itemId);
+      // Don't call loadBasketItems() - let caller handle state updates
       return response;
     } catch (e) {
       rethrow;

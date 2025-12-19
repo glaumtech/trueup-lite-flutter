@@ -5,7 +5,6 @@ import 'package:dropdown_search/dropdown_search.dart';
 import '../../models/product_order_suggestion.dart';
 import '../../providers/order_suggestions_provider.dart';
 import '../../models/po_basket_item.dart';
-import '../../services/api_service.dart';
 
 class OrderSuggestionsScreen extends ConsumerStatefulWidget {
   const OrderSuggestionsScreen({super.key});
@@ -26,7 +25,6 @@ class _OrderSuggestionsScreenState
   String? _selectedCategory;
   String? _selectedBrand;
   String? _selectedSupplier;
-  bool _inStockOnly = false;
   double? _minPrice;
   double? _maxPrice;
 
@@ -112,7 +110,8 @@ class _OrderSuggestionsScreenState
           OrderSuggestionFilter(
               searchTerm: _searchController.text,
               category: filter.category,
-              brand: filter.brand);
+              brand: filter.brand,
+              supplier: filter.supplier);
     });
   }
 
@@ -332,68 +331,66 @@ class _OrderSuggestionsScreenState
       padding: _screenPadding,
       child: Column(
         children: [
-          TextField(
-            controller: _searchController,
-            style: TextStyle(fontSize: _bodyFontSize),
-            decoration: InputDecoration(
-              hintText: 'Search products...',
-              hintStyle: TextStyle(fontSize: _bodyFontSize),
-              prefixIcon:
-                  Icon(Icons.search, size: _isSmallScreen ? 20.0 : 24.0),
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: _mediumSpacing,
-                vertical: _isSmallScreen ? 10.0 : 12.0,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8.0),
-              ),
-            ),
-          ),
-          SizedBox(height: _smallSpacing),
-          // Filter chips row
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip(
-                  label: 'In Stock Only',
-                  selected: _inStockOnly,
-                  onSelected: (value) {
-                    setState(() => _inStockOnly = value);
-                  },
-                ),
-                SizedBox(width: _smallSpacing),
-                _buildFilterChip(
-                  label: 'Clear Filters',
-                  selected: false,
-                  onSelected: (_) => _clearAllFilters(),
-                ),
-                SizedBox(width: _smallSpacing),
-                // Refresh button
-                IconButton(
-                  icon: Icon(
-                    Icons.refresh,
-                    size: _isSmallScreen ? 20.0 : 24.0,
-                  ),
-                  tooltip: 'Refresh',
-                  onPressed: () => _refreshOrderSuggestions(),
-                  padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
-                  constraints: BoxConstraints(
-                    minWidth: _isSmallScreen ? 32.0 : 40.0,
-                    minHeight: _isSmallScreen ? 32.0 : 40.0,
-                  ),
-                  style: IconButton.styleFrom(
-                    backgroundColor:
-                        Theme.of(context).primaryColor.withOpacity(0.1),
-                    shape: RoundedRectangleBorder(
+          // Search field with icons in same row
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  style: TextStyle(fontSize: _bodyFontSize),
+                  decoration: InputDecoration(
+                    hintText: 'Search products...',
+                    hintStyle: TextStyle(fontSize: _bodyFontSize),
+                    prefixIcon:
+                        Icon(Icons.search, size: _isSmallScreen ? 20.0 : 24.0),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: _mediumSpacing,
+                      vertical: _isSmallScreen ? 10.0 : 12.0,
+                    ),
+                    border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),
+                    isDense: true,
                   ),
                 ),
-              ],
-            ),
+              ),
+              // Clear Filters button
+              IconButton(
+                icon: Icon(
+                  Icons.clear,
+                  size: _isSmallScreen ? 20.0 : 24.0,
+                ),
+                tooltip: 'Clear Filters',
+                onPressed: () => _clearAllFilters(),
+                padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
+                constraints: BoxConstraints(
+                  minWidth: _isSmallScreen ? 32.0 : 40.0,
+                  minHeight: _isSmallScreen ? 32.0 : 40.0,
+                ),
+              ),
+              // Refresh button
+              IconButton(
+                icon: Icon(
+                  Icons.refresh,
+                  size: _isSmallScreen ? 20.0 : 24.0,
+                ),
+                tooltip: 'Refresh',
+                onPressed: () => _refreshOrderSuggestions(),
+                padding: EdgeInsets.all(_isSmallScreen ? 4.0 : 8.0),
+                constraints: BoxConstraints(
+                  minWidth: _isSmallScreen ? 32.0 : 40.0,
+                  minHeight: _isSmallScreen ? 32.0 : 40.0,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor:
+                      Theme.of(context).primaryColor.withOpacity(0.1),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8.0),
+                  ),
+                ),
+              ),
+            ],
           ),
-          SizedBox(height: _smallSpacing),
           // Responsive dropdown layout
           _isSmallScreen
               ? Column(
@@ -401,10 +398,8 @@ class _OrderSuggestionsScreenState
                     SizedBox(
                         height: _dropdownHeight,
                         child: _buildCategoryDropdown()),
-                    SizedBox(height: _smallSpacing),
                     SizedBox(
                         height: _dropdownHeight, child: _buildBrandDropdown()),
-                    SizedBox(height: _smallSpacing),
                     SizedBox(
                         height: _dropdownHeight,
                         child: _buildSupplierDropdown()),
@@ -436,41 +431,21 @@ class _OrderSuggestionsScreenState
     );
   }
 
-  Widget _buildFilterChip({
-    required String label,
-    required bool selected,
-    required Function(bool) onSelected,
-  }) {
-    return FilterChip(
-      label: Text(
-        label,
-        style: TextStyle(fontSize: _labelFontSize),
-      ),
-      selected: selected,
-      onSelected: onSelected,
-      selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
-      padding: EdgeInsets.symmetric(
-        horizontal: _smallSpacing,
-        vertical: _isSmallScreen ? 4.0 : 6.0,
-      ),
-      labelPadding: EdgeInsets.symmetric(
-        horizontal: _smallSpacing,
-      ),
-    );
-  }
-
   void _clearAllFilters() {
     _searchController.clear();
     setState(() {
       _selectedCategory = 'All Categories';
       _selectedBrand = 'All Brands';
       _selectedSupplier = 'All Suppliers';
-      _inStockOnly = false;
       _minPrice = null;
       _maxPrice = null;
     });
     ref.read(orderSuggestionFilterProvider.notifier).state =
-        OrderSuggestionFilter();
+        OrderSuggestionFilter(
+            searchTerm: '',
+            category: 'All Categories',
+            brand: 'All Brands',
+            supplier: 'All Suppliers');
   }
 
   Future<void> _refreshOrderSuggestions() async {
@@ -549,7 +524,8 @@ class _OrderSuggestionsScreenState
                 OrderSuggestionFilter(
                     searchTerm: filter.searchTerm,
                     category: filter.category,
-                    brand: filter.brand);
+                    brand: filter.brand,
+                    supplier: value);
           },
           popupProps: PopupProps.menu(
             showSearchBox: true,
@@ -639,7 +615,8 @@ class _OrderSuggestionsScreenState
                 OrderSuggestionFilter(
                     searchTerm: filter.searchTerm,
                     category: value,
-                    brand: filter.brand);
+                    brand: filter.brand,
+                    supplier: filter.supplier);
           },
           popupProps: PopupProps.menu(
             showSearchBox: true,
@@ -729,7 +706,8 @@ class _OrderSuggestionsScreenState
                 OrderSuggestionFilter(
                     searchTerm: filter.searchTerm,
                     category: filter.category,
-                    brand: value);
+                    brand: value,
+                    supplier: filter.supplier);
           },
           popupProps: PopupProps.menu(
             showSearchBox: true,
@@ -828,7 +806,7 @@ class _OrderSuggestionsScreenState
     return Card(
       margin: EdgeInsets.symmetric(
         horizontal: _smallSpacing,
-        vertical: _isSmallScreen ? 3.0 : 4.0,
+        vertical: _isSmallScreen ? 1.5 : 2.0,
       ),
       elevation: isSelected ? 4 : 1,
       color:
@@ -860,7 +838,7 @@ class _OrderSuggestionsScreenState
           }
         },
         child: Padding(
-          padding: EdgeInsets.all(_isSmallScreen ? 8.0 : _mediumSpacing),
+          padding: EdgeInsets.all(_isSmallScreen ? 4.0 : _mediumSpacing * 0.5),
           child: Row(
             children: [
               if (_isMultiSelectMode)
@@ -885,16 +863,41 @@ class _OrderSuggestionsScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      product.productName ?? 'No Name',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontSize: _titleFontSize,
+                    // Product name with MRP
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            product.productName ?? 'No Name',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  fontSize: _titleFontSize,
+                                ),
                           ),
+                        ),
+                        if (product.mrp != null) ...[
+                          SizedBox(width: 8),
+                          Chip(
+                            label: Text(
+                              'MRP: ₹${product.mrp}',
+                              style: TextStyle(fontSize: _labelFontSize),
+                            ),
+                            backgroundColor: Colors.green.shade100,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _smallSpacing * 0.5,
+                              vertical: 0,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
+                      ],
                     ),
-                    SizedBox(height: _smallSpacing),
+                    // Category, Brand, Supplier chips
                     Wrap(
                       spacing: _isSmallScreen ? 4.0 : 8.0,
-                      runSpacing: _isSmallScreen ? 2.0 : 4.0,
+                      runSpacing: _isSmallScreen ? 1.0 : 2.0,
                       children: [
                         if (product.categoryName != null)
                           Chip(
@@ -904,8 +907,10 @@ class _OrderSuggestionsScreenState
                             ),
                             backgroundColor: Colors.blue.shade100,
                             padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
+                              horizontal: _smallSpacing * 0.5,
+                              vertical: 0,
                             ),
+                            visualDensity: VisualDensity.compact,
                           ),
                         if (product.brandName != null)
                           Chip(
@@ -915,8 +920,10 @@ class _OrderSuggestionsScreenState
                             ),
                             backgroundColor: Colors.purple.shade100,
                             padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
+                              horizontal: _smallSpacing * 0.5,
+                              vertical: 0,
                             ),
+                            visualDensity: VisualDensity.compact,
                           ),
                         if (product.supplierName != null)
                           Chip(
@@ -926,54 +933,38 @@ class _OrderSuggestionsScreenState
                             ),
                             backgroundColor: Colors.orange.shade100,
                             padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
+                              horizontal: _smallSpacing * 0.5,
+                              vertical: 0,
                             ),
-                          ),
-                        if (isLowStock)
-                          Chip(
-                            label: Text(
-                              'LOW STOCK',
-                              style: TextStyle(
-                                fontSize: _labelFontSize,
-                                color: Colors.white,
-                              ),
-                            ),
-                            backgroundColor: Colors.red,
-                            padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
-                            ),
-                          ),
-                        if (product.mrp != null)
-                          Chip(
-                            label: Text(
-                              'MRP: ₹${product.mrp}',
-                              style: TextStyle(fontSize: _labelFontSize),
-                            ),
-                            backgroundColor: Colors.green.shade100,
-                            padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
-                            ),
-                          ),
-                        if (product.currentStock != null)
-                          Chip(
-                            label: Text(
-                              'Stock: ${product.currentStock}',
-                              style: TextStyle(fontSize: _labelFontSize),
-                            ),
-                            backgroundColor: Colors.grey.shade200,
-                            padding: EdgeInsets.symmetric(
-                              horizontal: _smallSpacing,
-                            ),
+                            visualDensity: VisualDensity.compact,
                           ),
                       ],
                     ),
-                    SizedBox(height: _smallSpacing),
+                    // Order Quantity row - aligned with Stock
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Text(
-                          'Order Quantity',
-                          style: TextStyle(fontSize: _bodyFontSize),
+                        Row(
+                          children: [
+                            Text(
+                              'Order Quantity',
+                              style: TextStyle(fontSize: _bodyFontSize),
+                            ),
+                            if (product.currentStock != null) ...[
+                              SizedBox(width: 8),
+                              Text(
+                                '(Stock: ${product.currentStock})',
+                                style: TextStyle(
+                                  fontSize: _bodyFontSize * 0.85,
+                                  color: isLowStock
+                                      ? Colors.red
+                                      : Colors.grey.shade600,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         _buildQuantitySelector(product, quantityInBasket),
                       ],
@@ -1018,7 +1009,6 @@ class _OrderSuggestionsScreenState
                       fontSize: _titleFontSize,
                     ),
               ),
-              SizedBox(height: _smallSpacing),
               if (product.brandName != null)
                 Text(
                   'Brand: ${product.brandName}',
@@ -1158,12 +1148,16 @@ class _OrderSuggestionsScreenState
                         quantityInBasket > 0 ? quantityInBasket - 1 : 0;
 
                     // Update the controller to show the new quantity
+                    // If targetQuantity is 0, display 1 as default instead of 0
                     final controller = _quantityControllers[product.productId];
                     if (controller != null) {
-                      controller.text = targetQuantity.toString();
+                      final displayValue =
+                          targetQuantity == 0 ? 1 : targetQuantity;
+                      controller.text = displayValue.toString();
                     }
 
                     // Use the unified update method to handle update/remove
+                    // Send 0 to API to remove item, but display will show 1
                     await _updateQuantityFromInput(
                         product, targetQuantity.toString());
                   } catch (e) {
@@ -1200,12 +1194,6 @@ class _OrderSuggestionsScreenState
             ),
             onSubmitted: (value) async {
               await _updateQuantityFromInput(product, value);
-            },
-            onEditingComplete: () async {
-              final controller = _quantityControllers[product.productId];
-              if (controller != null) {
-                await _updateQuantityFromInput(product, controller.text);
-              }
             },
           ),
         ),
@@ -1278,14 +1266,17 @@ class _OrderSuggestionsScreenState
   /// Get or create a TextEditingController for a product's quantity field
   TextEditingController _getQuantityController(
       int? productId, int currentQuantity) {
+    // Default to 1 if quantity is 0
+    final displayQuantity = currentQuantity == 0 ? 1 : currentQuantity;
+
     if (productId == null) {
       // Return a dummy controller if productId is null
-      return TextEditingController(text: currentQuantity.toString());
+      return TextEditingController(text: displayQuantity.toString());
     }
 
     if (!_quantityControllers.containsKey(productId)) {
       _quantityControllers[productId] =
-          TextEditingController(text: currentQuantity.toString());
+          TextEditingController(text: displayQuantity.toString());
     } else {
       // Only update the controller's text if:
       // 1. We're not currently updating this quantity (user input in progress)
@@ -1295,8 +1286,9 @@ class _OrderSuggestionsScreenState
       final controllerValue = int.tryParse(controller.text) ?? 0;
 
       // Only sync if not updating and values differ
-      if (!isUpdating && controllerValue != currentQuantity) {
-        controller.text = currentQuantity.toString();
+      // Use displayQuantity for comparison when currentQuantity is 0
+      if (!isUpdating && controllerValue != displayQuantity) {
+        controller.text = displayQuantity.toString();
       }
     }
     return _quantityControllers[productId]!;
@@ -1324,7 +1316,7 @@ class _OrderSuggestionsScreenState
     final newQuantity = int.tryParse(value.trim());
 
     if (newQuantity == null || newQuantity < 0) {
-      // Invalid input - reset to current quantity
+      // Invalid input - reset to current quantity (or 1 if 0)
       final controller = _quantityControllers[product.productId];
       if (controller != null) {
         final basket = ref.read(basketProvider);
@@ -1332,7 +1324,9 @@ class _OrderSuggestionsScreenState
           (item) => item.productId == product.productId,
           orElse: () => const POBasketItem(quantity: 0),
         );
-        controller.text = (basketItem.quantity ?? 0).toString();
+        final currentQuantity = basketItem.quantity ?? 0;
+        final displayValue = currentQuantity == 0 ? 1 : currentQuantity;
+        controller.text = displayValue.toString();
       }
 
       // Clear the updating flag for invalid input
@@ -1362,6 +1356,11 @@ class _OrderSuggestionsScreenState
         if (basketItem.id != null) {
           await basketNotifier.removeItem(basketItem.id!);
         }
+        // After removal, set controller to default value of 1
+        final controller = _quantityControllers[product.productId];
+        if (controller != null) {
+          controller.text = '1';
+        }
       } else if (basketItem.id == null) {
         // Add new item to basket
         final newBasketItem = POBasketItem(
@@ -1384,10 +1383,13 @@ class _OrderSuggestionsScreenState
               backgroundColor: Colors.orange,
             ),
           );
-          // Reset controller to current quantity
+          // Reset controller to current quantity (or 1 if 0)
           final controller = _quantityControllers[product.productId];
           if (controller != null) {
-            controller.text = '0';
+            final displayValue = (basketItem.quantity ?? 0) == 0
+                ? 1
+                : (basketItem.quantity ?? 0);
+            controller.text = displayValue.toString();
           }
         } else {
           // Success - keep the controller value as user entered
@@ -1439,7 +1441,7 @@ class _OrderSuggestionsScreenState
       }
       print('Error updating quantity from input: $e');
 
-      // Reset controller to current quantity on error
+      // Reset controller to current quantity on error (or 1 if 0)
       final controller = _quantityControllers[product.productId];
       if (controller != null) {
         final basket = ref.read(basketProvider);
@@ -1447,7 +1449,9 @@ class _OrderSuggestionsScreenState
           (item) => item.productId == product.productId,
           orElse: () => const POBasketItem(quantity: 0),
         );
-        controller.text = (basketItem.quantity ?? 0).toString();
+        final currentQuantity = basketItem.quantity ?? 0;
+        final displayValue = currentQuantity == 0 ? 1 : currentQuantity;
+        controller.text = displayValue.toString();
       }
 
       // Clear the updating flag on error
