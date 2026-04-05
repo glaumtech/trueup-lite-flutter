@@ -5,6 +5,10 @@ import 'screens/order_suggestions/order_suggestions_screen.dart';
 import 'screens/order_suggestions/order_suggestions_basket_screen.dart';
 import 'screens/order_suggestions/order_suggestions_history_screen.dart';
 import 'screens/order_suggestions/weekly_purchase_history_screen.dart';
+import 'screens/purchases/purchase_v2_create_screen.dart';
+import 'screens/purchases/purchase_v2_history_screen.dart';
+import 'screens/purchases/purchase_v2_detail_screen.dart';
+import 'screens/inventory/inventory_abc_dsi_report_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() {
@@ -60,6 +64,25 @@ final GoRouter _router = GoRouter(
     GoRoute(
       path: '/weekly-purchase-history',
       builder: (context, state) => const WeeklyPurchaseHistoryScreen(),
+    ),
+    GoRoute(
+      path: '/purchase-v2',
+      builder: (context, state) => const PurchaseV2CreateScreen(),
+    ),
+    GoRoute(
+      path: '/purchase-v2/history',
+      builder: (context, state) => const PurchaseV2HistoryScreen(),
+    ),
+    GoRoute(
+      path: '/purchase-v2/:purchaseId',
+      builder: (context, state) {
+        final purchaseId = int.tryParse(state.pathParameters['purchaseId'] ?? '');
+        return PurchaseV2DetailScreen(purchaseId: purchaseId);
+      },
+    ),
+    GoRoute(
+      path: '/inventory/abc-dsi',
+      builder: (context, state) => const InventoryAbcDsiReportScreen(),
     ),
   ],
 );

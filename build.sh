@@ -24,5 +24,14 @@ flutter test
 echo "📱 Building Android APK..."
 flutter build apk --release
 
+# Rename final APK
+echo "🏷️ Renaming APK to TrueupLite.apk..."
+if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+  cp "build/app/outputs/flutter-apk/app-release.apk" "build/app/outputs/flutter-apk/TrueupLite.apk"
+else
+  echo "❌ Expected APK not found at build/app/outputs/flutter-apk/app-release.apk"
+  exit 1
+fi
+
 echo "✅ Build completed successfully!"
-echo "📁 APK location: build/app/outputs/flutter-apk/app-release.apk"
+echo "📁 APK location: build/app/outputs/flutter-apk/TrueupLite.apk"

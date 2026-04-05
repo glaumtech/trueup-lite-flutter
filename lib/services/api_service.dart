@@ -9,6 +9,8 @@ import '../models/order_suggestion_history.dart';
 import '../models/weekly_purchase_history.dart';
 import '../models/request_models.dart';
 import '../models/response_models.dart';
+import '../models/purchase_v2_models.dart';
+import '../models/inventory_abc_dsi_models.dart';
 
 class ApiService {
   // Update this to match your backend server URL
@@ -20,6 +22,7 @@ class ApiService {
       'https://ghopon.com/trueup-lite-renga'; // Mac's local IP for physical device connection
   static const String orderSuggestionsPath = '/order-suggestions';
   static const String itemsPath = '/items/getAll';
+  static const String purchaseV2Path = '/purchasev2';
 
   // HTTP client with timeout configuration
   final http.Client _client = http.Client();
@@ -387,6 +390,33 @@ class ApiService {
         print('❌ Failed after ${overallStopwatch.elapsedMilliseconds}ms');
       }
       throw ApiException('Error generating order suggestions: $e');
+    }
+  }
+
+  /// Fetches product master data from `/items` including each product's `suppliers`.
+  /// This is used by the Purchase V2 form to build item+supplier line entries.
+  Future<List<Map<String, dynamic>>> getItemsWithSuppliers() async {
+    try {
+      final uri = Uri.parse('$baseUrl/items');
+      final response = await _getWithTimeout(uri, operationName: 'getItems');
+
+      if (response.statusCode != 200) {
+        throw ApiException('Failed to fetch items', response.statusCode);
+      }
+
+      final decoded = json.decode(response.body);
+      if (decoded is List) {
+        return decoded.map((e) => e as Map<String, dynamic>).toList();
+      }
+
+      if (decoded is Map && decoded['content'] is List) {
+        final content = decoded['content'] as List<dynamic>;
+        return content.map((e) => e as Map<String, dynamic>).toList();
+      }
+
+      throw ApiException('Unexpected response format from /items endpoint');
+    } catch (e) {
+      throw ApiException('Error fetching items: $e');
     }
   }
 
@@ -785,6 +815,142 @@ class ApiService {
       }
     } catch (e) {
       throw ApiException('Error creating purchase order from basket: $e');
+    }
+  }
+
+  // ============ PURCHASE V2 (Stock receiving + expiry tracking) ============
+
+  /// Generates the next purchase bill number (e.g., `B120001`)
+  Future<String> generatePurchaseV2BillNumber() async {
+    try {
+      final uri = Uri.parse('$baseUrl$purchaseV2Path/billNo');
+      final response = await _client.get(uri, headers: _headers);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        return data['billNo'] as String;
+      }
+      throw ApiException('Failed to generate bill number', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error generating bill number: $e');
+    }
+  }
+
+  /// Uploads the purchase bill image to the server and returns `billImageUrl`
+  Future<String> uploadPurchaseBillImage(String filePath) async {
+    try {
+      final uri = Uri.parse('$baseUrl$purchaseV2Path/bill-image/upload');
+      final request = http.MultipartRequest('POST', uri);
+
+      // Keep server-side response in JSON
+      request.headers.addAll({'Accept': 'application/json'});
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        return data['billImageUrl'] as String;
+      }
+      throw ApiException('Failed to upload bill image', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error uploading bill image: $e');
+    }
+  }
+
+  Future<PurchaseV2CreateResponse> createPurchaseV2(
+    PurchaseV2CreateRequest request,
+  ) async {
+    try {
+      final uri = Uri.parse('$baseUrl$purchaseV2Path/save');
+      final response = await _client.post(
+        uri,
+        headers: _headers,
+        body: json.encode(request.toJson()),
+      );
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        return PurchaseV2CreateResponse.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to create purchase', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error creating purchase: $e');
+    }
+  }
+
+  Future<List<PurchaseV2Summary>> getPurchaseV2List({
+    int page = 0,
+    int size = 20,
+    String? supplierName,
+    String? billNo,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl$purchaseV2Path/list').replace(
+        queryParameters: {
+          'page': page.toString(),
+          'size': size.toString(),
+          if (supplierName != null && supplierName.isNotEmpty) 'supplierName': supplierName,
+          if (billNo != null && billNo.isNotEmpty) 'billNo': billNo,
+        },
+      );
+
+      final response = await _client.get(uri, headers: _headers);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final content = (data['content'] as List<dynamic>? ?? []);
+        return content
+            .map((e) => PurchaseV2Summary.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      throw ApiException('Failed to get purchase list', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error getting purchase list: $e');
+    }
+  }
+
+  Future<PurchaseV2Detail> getPurchaseV2Detail(int purchaseId) async {
+    try {
+      final uri = Uri.parse('$baseUrl$purchaseV2Path/$purchaseId');
+      final response = await _client.get(uri, headers: _headers);
+
+      if (response.statusCode == 200) {
+        return PurchaseV2Detail.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to get purchase detail', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error getting purchase detail: $e');
+    }
+  }
+
+  Future<InventoryAbcDsiReport> getInventoryAbcDsiReport({
+    int windowDays = 90,
+    int weeklySnapshotCount = 13,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/inventory-analysis/abc-dsi-report')
+          .replace(queryParameters: {
+        'windowDays': windowDays.toString(),
+        'weeklySnapshotCount': weeklySnapshotCount.toString(),
+      });
+
+      final response = await _getWithTimeout(
+        uri,
+        operationName: 'getInventoryAbcDsiReport',
+      );
+
+      if (response.statusCode == 200) {
+        return InventoryAbcDsiReport.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to get inventory ABC/DSI report', response.statusCode);
+    } catch (e) {
+      throw ApiException('Error getting inventory ABC/DSI report: $e');
     }
   }
 

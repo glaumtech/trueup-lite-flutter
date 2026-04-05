@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/persistence_service.dart';
 import '../models/weekly_purchase_history.dart';
 import '../models/order_suggestion_history.dart';
+import '../models/inventory_abc_dsi_models.dart';
 
 // API Service Provider
 final apiServiceProvider = Provider<ApiService>((ref) {
@@ -308,6 +309,34 @@ class OrderSuggestionHistoryNotifier
 final orderSuggestionHistoryProvider = NotifierProvider<
     OrderSuggestionHistoryNotifier, List<OrderSuggestionHistory>>(
   OrderSuggestionHistoryNotifier.new,
+);
+
+// Inventory ABC/DSI report state
+class InventoryAbcDsiReportNotifier extends AsyncNotifier<InventoryAbcDsiReport> {
+  @override
+  Future<InventoryAbcDsiReport> build() async {
+    final apiService = ref.read(apiServiceProvider);
+    return apiService.getInventoryAbcDsiReport();
+  }
+
+  Future<void> loadReport({
+    int windowDays = 90,
+    int weeklySnapshotCount = 13,
+  }) async {
+    state = const AsyncValue.loading();
+    final apiService = ref.read(apiServiceProvider);
+    state = await AsyncValue.guard(
+      () => apiService.getInventoryAbcDsiReport(
+        windowDays: windowDays,
+        weeklySnapshotCount: weeklySnapshotCount,
+      ),
+    );
+  }
+}
+
+final inventoryAbcDsiReportProvider = AsyncNotifierProvider<
+    InventoryAbcDsiReportNotifier, InventoryAbcDsiReport>(
+  InventoryAbcDsiReportNotifier.new,
 );
 
 // Categories State
