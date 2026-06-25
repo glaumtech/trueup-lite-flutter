@@ -11,6 +11,7 @@ import '../models/request_models.dart';
 import '../models/response_models.dart';
 import '../models/purchase_v2_models.dart';
 import '../models/inventory_abc_dsi_models.dart';
+import '../models/admin_store_order.dart';
 
 class ApiService {
   // Update this to match your backend server URL
@@ -23,6 +24,9 @@ class ApiService {
   static const String orderSuggestionsPath = '/order-suggestions';
   static const String itemsPath = '/items/getAll';
   static const String purchaseV2Path = '/purchasev2';
+  static const String adminOrdersPath = '/api/store/admin/orders';
+
+  String? authToken;
 
   // HTTP client with timeout configuration
   final http.Client _client = http.Client();
@@ -39,6 +43,14 @@ class ApiService {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       };
+
+  Map<String, String> get _authHeaders {
+    final headers = Map<String, String>.from(_headers);
+    if (authToken != null && authToken!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $authToken';
+    }
+    return headers;
+  }
 
   /// Wrapper for HTTP GET with timeout and performance logging
   Future<http.Response> _getWithTimeout(
@@ -135,6 +147,46 @@ class ApiService {
     try {
       final response = await _client
           .put(uri, headers: headers ?? _headers, body: body)
+          .timeout(_receiveTimeout, onTimeout: () {
+        throw TimeoutException(
+          'Request timeout after ${_receiveTimeout.inSeconds}s',
+          _receiveTimeout,
+        );
+      });
+
+      if (_enablePerformanceLogging && stopwatch != null) {
+        stopwatch.stop();
+        print('⏱️  API Call: ${operationName ?? uri.path} - '
+            '${stopwatch.elapsedMilliseconds}ms - '
+            'Status: ${response.statusCode}');
+      }
+
+      return response;
+    } catch (e) {
+      if (_enablePerformanceLogging && stopwatch != null) {
+        stopwatch.stop();
+        print('❌ API Call Failed: ${operationName ?? uri.path} - '
+            '${stopwatch.elapsedMilliseconds}ms - Error: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Wrapper for HTTP PATCH with timeout and performance logging
+  Future<http.Response> _patchWithTimeout(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+    String? operationName,
+  }) async {
+    Stopwatch? stopwatch;
+    if (_enablePerformanceLogging) {
+      stopwatch = Stopwatch()..start();
+    }
+
+    try {
+      final response = await _client
+          .patch(uri, headers: headers ?? _headers, body: body)
           .timeout(_receiveTimeout, onTimeout: () {
         throw TimeoutException(
           'Request timeout after ${_receiveTimeout.inSeconds}s',
@@ -1126,6 +1178,127 @@ class ApiService {
       }
     } catch (e) {
       throw ApiException('Error getting suppliers: $e');
+    }
+  }
+
+  Future<List<AdminStoreOrder>> getAdminOrders() async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminOrdersPath');
+      final response = await _getWithTimeout(
+        uri,
+        headers: _authHeaders,
+        operationName: 'getAdminOrders',
+      );
+      if (response.statusCode == 200) {
+        final list = json.decode(response.body) as List<dynamic>;
+        return list
+            .map((e) => AdminStoreOrder.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      throw ApiException('Failed to load orders', response.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error loading orders: $e');
+    }
+  }
+
+  Future<List<AdminStoreOrder>> getAdminPendingOrders() async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminOrdersPath/pending');
+      final response = await _getWithTimeout(
+        uri,
+        headers: _authHeaders,
+        operationName: 'getAdminPendingOrders',
+      );
+      if (response.statusCode == 200) {
+        final list = json.decode(response.body) as List<dynamic>;
+        return list
+            .map((e) => AdminStoreOrder.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      throw ApiException('Failed to load pending orders', response.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error loading pending orders: $e');
+    }
+  }
+
+  Future<AdminStoreOrder> getAdminOrder(String orderRef) async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminOrdersPath/$orderRef');
+      final response = await _getWithTimeout(
+        uri,
+        headers: _authHeaders,
+        operationName: 'getAdminOrder',
+      );
+      if (response.statusCode == 200) {
+        return AdminStoreOrder.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to load order', response.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error loading order: $e');
+    }
+  }
+
+  Future<AdminStoreOrder> updateAdminOrderStatus(
+    String orderRef,
+    String status,
+  ) async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminOrdersPath/$orderRef/status');
+      final response = await _patchWithTimeout(
+        uri,
+        headers: _authHeaders,
+        body: json.encode({'status': status}),
+        operationName: 'updateAdminOrderStatus',
+      );
+      if (response.statusCode == 200) {
+        return AdminStoreOrder.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to update status', response.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error updating status: $e');
+    }
+  }
+
+  Future<AdminStoreOrder> updateAdminOrderNotes(
+    String orderRef,
+    String staffNotes,
+  ) async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminOrdersPath/$orderRef/notes');
+      final response = await _patchWithTimeout(
+        uri,
+        headers: _authHeaders,
+        body: json.encode({'staffNotes': staffNotes}),
+        operationName: 'updateAdminOrderNotes',
+      );
+      if (response.statusCode == 200) {
+        return AdminStoreOrder.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
+        );
+      }
+      throw ApiException('Failed to update notes', response.statusCode);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error updating notes: $e');
+    }
+  }
+
+  void _requireAuthToken() {
+    if (authToken == null || authToken!.isEmpty) {
+      throw ApiException('Staff login required');
     }
   }
 
