@@ -5,8 +5,8 @@ import 'package:intl/intl.dart';
 
 import '../../models/admin_store_order.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/order_polling_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/fcm_service.dart';
 
 class OnlineOrdersListScreen extends ConsumerStatefulWidget {
   const OnlineOrdersListScreen({super.key});
@@ -37,7 +37,6 @@ class _OnlineOrdersListScreenState
     try {
       final api = ref.read(authenticatedApiProvider);
       _orders = await api.getAdminOrders();
-      await ref.read(orderPollingProvider).updateBaselineFromPending();
     } on ApiException catch (e) {
       _error = e.message;
     } catch (e) {
@@ -49,7 +48,7 @@ class _OnlineOrdersListScreenState
   }
 
   Future<void> _logout() async {
-    await ref.read(orderPollingProvider).onStaffLogout();
+    await FcmService.instance.unregister(ref);
     await ref.read(authProvider.notifier).logout();
     if (!mounted) return;
     context.go('/');

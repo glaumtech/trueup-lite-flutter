@@ -8,7 +8,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const String channelId = 'online_orders';
+  static const String channelId = 'online_orders_alerts';
   static const String channelName = 'Online Orders';
   static const int newOrderNotificationId = 9001;
 
@@ -43,13 +43,16 @@ class NotificationService {
       channelId,
       channelName,
       description: 'Alerts for new pending online orders',
-      importance: Importance.high,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
     );
 
-    await _plugin
+    final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    await androidPlugin?.createNotificationChannel(channel);
 
     _initialized = true;
   }
@@ -62,23 +65,27 @@ class NotificationService {
     return granted ?? false;
   }
 
-  Future<void> showNewPendingOrders(List<String> orderRefs) async {
-    if (!_initialized || orderRefs.isEmpty) return;
+  Future<void> showOrderAlert({
+    required String title,
+    required String body,
+    String orderRef = '',
+  }) async {
+    await init();
 
-    final title = orderRefs.length == 1
-        ? 'New online order'
-        : '${orderRefs.length} new online orders';
-    final body = orderRefs.length == 1
-        ? orderRefs.first
-        : orderRefs.take(3).join(', ') +
-            (orderRefs.length > 3 ? '…' : '');
+    final payload = orderRef.isNotEmpty
+        ? '/online-orders/$orderRef'
+        : '/online-orders';
 
     const androidDetails = AndroidNotificationDetails(
       channelId,
       channelName,
       channelDescription: 'Alerts for new pending online orders',
-      importance: Importance.high,
-      priority: Priority.high,
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: true,
+      enableVibration: true,
+      visibility: NotificationVisibility.public,
+      category: AndroidNotificationCategory.message,
     );
 
     await _plugin.show(
@@ -86,7 +93,7 @@ class NotificationService {
       title,
       body,
       const NotificationDetails(android: androidDetails),
-      payload: '/online-orders',
+      payload: payload,
     );
   }
 

@@ -25,6 +25,7 @@ class ApiService {
   static const String itemsPath = '/items/getAll';
   static const String purchaseV2Path = '/purchasev2';
   static const String adminOrdersPath = '/api/store/admin/orders';
+  static const String adminFcmTokenPath = '/api/store/admin/fcm-token';
 
   String? authToken;
 
@@ -1293,6 +1294,44 @@ class ApiService {
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Error updating notes: $e');
+    }
+  }
+
+  Future<void> registerFcmToken(String fcmToken) async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminFcmTokenPath');
+      final response = await _postWithTimeout(
+        uri,
+        headers: _authHeaders,
+        body: json.encode({'fcmToken': fcmToken}),
+        operationName: 'registerFcmToken',
+      );
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw ApiException('Failed to register FCM token', response.statusCode);
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error registering FCM token: $e');
+    }
+  }
+
+  Future<void> unregisterFcmToken(String fcmToken) async {
+    _requireAuthToken();
+    try {
+      final uri = Uri.parse('$baseUrl$adminFcmTokenPath')
+          .replace(queryParameters: {'fcmToken': fcmToken});
+      final response = await _deleteWithTimeout(
+        uri,
+        headers: _authHeaders,
+        operationName: 'unregisterFcmToken',
+      );
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        throw ApiException('Failed to unregister FCM token', response.statusCode);
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error unregistering FCM token: $e');
     }
   }
 

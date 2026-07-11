@@ -1,7 +1,7 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:workmanager/workmanager.dart';
 import 'screens/order_suggestions/order_suggestions_screen.dart';
 import 'screens/order_suggestions/order_suggestions_basket_screen.dart';
 import 'screens/order_suggestions/order_suggestions_history_screen.dart';
@@ -14,14 +14,16 @@ import 'screens/store_orders/staff_login_screen.dart';
 import 'screens/store_orders/online_orders_list_screen.dart';
 import 'screens/store_orders/online_order_detail_screen.dart';
 import 'screens/home_screen.dart';
+import 'firebase_options.dart';
+import 'services/fcm_service.dart';
 import 'services/notification_service.dart';
-import 'services/order_polling_service.dart';
 import 'widgets/staff_session_watcher.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
-  await Workmanager().initialize(orderPollingCallbackDispatcher);
+  await FcmService.instance.init();
   runApp(const ProviderScope(child: TrueUpLiteApp()));
 }
 
@@ -44,7 +46,11 @@ class _TrueUpLiteAppState extends State<TrueUpLiteApp> {
         _router.go(payload);
       }
     });
+    FcmService.instance.setNavigationHandler((route) {
+      _router.go(route);
+    });
     NotificationService.instance.handleLaunchNotification();
+    FcmService.instance.handleInitialMessage();
   }
 
   @override

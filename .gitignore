@@ -32,6 +32,9 @@ android/gradlew
 android/gradlew.bat
 android/local.properties
 android/**/GeneratedPluginRegistrant.java
+android/app/google-services.json
+
+# Firebase (download from Firebase Console; see firebase_options.dart)
 
 # iOS
 ios/.generated/
