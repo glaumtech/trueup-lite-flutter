@@ -5,12 +5,8 @@ import 'package:http/http.dart' as http;
 import '../models/supplier_order_suggestion.dart';
 import '../models/product_order_suggestion.dart';
 import '../models/po_basket_item.dart';
-import '../models/order_suggestion_history.dart';
-import '../models/weekly_purchase_history.dart';
 import '../models/request_models.dart';
 import '../models/response_models.dart';
-import '../models/purchase_v2_models.dart';
-import '../models/inventory_abc_dsi_models.dart';
 import '../models/admin_store_order.dart';
 
 class ApiService {
@@ -23,7 +19,6 @@ class ApiService {
       'https://ghopon.com/trueup-lite-renga'; // Mac's local IP for physical device connection
   static const String orderSuggestionsPath = '/order-suggestions';
   static const String itemsPath = '/items/getAll';
-  static const String purchaseV2Path = '/purchasev2';
   static const String adminOrdersPath = '/api/store/admin/orders';
   static const String adminFcmTokenPath = '/api/store/admin/fcm-token';
 
@@ -446,33 +441,6 @@ class ApiService {
     }
   }
 
-  /// Fetches product master data from `/items` including each product's `suppliers`.
-  /// This is used by the Purchase V2 form to build item+supplier line entries.
-  Future<List<Map<String, dynamic>>> getItemsWithSuppliers() async {
-    try {
-      final uri = Uri.parse('$baseUrl/items');
-      final response = await _getWithTimeout(uri, operationName: 'getItems');
-
-      if (response.statusCode != 200) {
-        throw ApiException('Failed to fetch items', response.statusCode);
-      }
-
-      final decoded = json.decode(response.body);
-      if (decoded is List) {
-        return decoded.map((e) => e as Map<String, dynamic>).toList();
-      }
-
-      if (decoded is Map && decoded['content'] is List) {
-        final content = decoded['content'] as List<dynamic>;
-        return content.map((e) => e as Map<String, dynamic>).toList();
-      }
-
-      throw ApiException('Unexpected response format from /items endpoint');
-    } catch (e) {
-      throw ApiException('Error fetching items: $e');
-    }
-  }
-
   /// Generate order suggestions for specific suppliers
   Future<List<SupplierOrderSuggestion>> generateOrderSuggestionsForSuppliers(
     List<int> supplierIds,
@@ -641,58 +609,6 @@ class ApiService {
       }
     } catch (e) {
       throw ApiException('Error getting statistics: $e');
-    }
-  }
-
-  /// Get order suggestion history with pagination
-  Future<PaginatedResponse<OrderSuggestionHistory>> getOrderSuggestionHistory({
-    int page = 0,
-    int size = 10,
-  }) async {
-    try {
-      final uri = Uri.parse('$baseUrl$orderSuggestionsPath/history')
-          .replace(queryParameters: {
-        'page': page.toString(),
-        'size': size.toString(),
-      });
-
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body);
-        return PaginatedResponse<OrderSuggestionHistory>.fromJson(
-          jsonData,
-          (json) => OrderSuggestionHistory.fromJson(json),
-        );
-      } else {
-        throw ApiException('Failed to get history', response.statusCode);
-      }
-    } catch (e) {
-      throw ApiException('Error getting history: $e');
-    }
-  }
-
-  /// Get weekly purchase history
-  Future<List<WeeklyPurchaseHistory>> getWeeklyPurchaseHistory(
-      {int weeks = 4}) async {
-    try {
-      final uri =
-          Uri.parse('$baseUrl$orderSuggestionsPath/weekly-purchase-history')
-              .replace(queryParameters: {'weeks': weeks.toString()});
-
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> jsonList = json.decode(response.body);
-        return jsonList
-            .map((json) => WeeklyPurchaseHistory.fromJson(json))
-            .toList();
-      } else {
-        throw ApiException(
-            'Failed to get weekly purchase history', response.statusCode);
-      }
-    } catch (e) {
-      throw ApiException('Error getting weekly purchase history: $e');
     }
   }
 
@@ -868,142 +784,6 @@ class ApiService {
       }
     } catch (e) {
       throw ApiException('Error creating purchase order from basket: $e');
-    }
-  }
-
-  // ============ PURCHASE V2 (Stock receiving + expiry tracking) ============
-
-  /// Generates the next purchase bill number (e.g., `B120001`)
-  Future<String> generatePurchaseV2BillNumber() async {
-    try {
-      final uri = Uri.parse('$baseUrl$purchaseV2Path/billNo');
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        return data['billNo'] as String;
-      }
-      throw ApiException('Failed to generate bill number', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error generating bill number: $e');
-    }
-  }
-
-  /// Uploads the purchase bill image to the server and returns `billImageUrl`
-  Future<String> uploadPurchaseBillImage(String filePath) async {
-    try {
-      final uri = Uri.parse('$baseUrl$purchaseV2Path/bill-image/upload');
-      final request = http.MultipartRequest('POST', uri);
-
-      // Keep server-side response in JSON
-      request.headers.addAll({'Accept': 'application/json'});
-      request.files.add(await http.MultipartFile.fromPath('file', filePath));
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        return data['billImageUrl'] as String;
-      }
-      throw ApiException('Failed to upload bill image', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error uploading bill image: $e');
-    }
-  }
-
-  Future<PurchaseV2CreateResponse> createPurchaseV2(
-    PurchaseV2CreateRequest request,
-  ) async {
-    try {
-      final uri = Uri.parse('$baseUrl$purchaseV2Path/save');
-      final response = await _client.post(
-        uri,
-        headers: _headers,
-        body: json.encode(request.toJson()),
-      );
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        return PurchaseV2CreateResponse.fromJson(
-          json.decode(response.body) as Map<String, dynamic>,
-        );
-      }
-      throw ApiException('Failed to create purchase', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error creating purchase: $e');
-    }
-  }
-
-  Future<List<PurchaseV2Summary>> getPurchaseV2List({
-    int page = 0,
-    int size = 20,
-    String? supplierName,
-    String? billNo,
-  }) async {
-    try {
-      final uri = Uri.parse('$baseUrl$purchaseV2Path/list').replace(
-        queryParameters: {
-          'page': page.toString(),
-          'size': size.toString(),
-          if (supplierName != null && supplierName.isNotEmpty) 'supplierName': supplierName,
-          if (billNo != null && billNo.isNotEmpty) 'billNo': billNo,
-        },
-      );
-
-      final response = await _client.get(uri, headers: _headers);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final content = (data['content'] as List<dynamic>? ?? []);
-        return content
-            .map((e) => PurchaseV2Summary.fromJson(e as Map<String, dynamic>))
-            .toList();
-      }
-      throw ApiException('Failed to get purchase list', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error getting purchase list: $e');
-    }
-  }
-
-  Future<PurchaseV2Detail> getPurchaseV2Detail(int purchaseId) async {
-    try {
-      final uri = Uri.parse('$baseUrl$purchaseV2Path/$purchaseId');
-      final response = await _client.get(uri, headers: _headers);
-
-      if (response.statusCode == 200) {
-        return PurchaseV2Detail.fromJson(
-          json.decode(response.body) as Map<String, dynamic>,
-        );
-      }
-      throw ApiException('Failed to get purchase detail', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error getting purchase detail: $e');
-    }
-  }
-
-  Future<InventoryAbcDsiReport> getInventoryAbcDsiReport({
-    int windowDays = 90,
-    int weeklySnapshotCount = 13,
-  }) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/inventory-analysis/abc-dsi-report')
-          .replace(queryParameters: {
-        'windowDays': windowDays.toString(),
-        'weeklySnapshotCount': weeklySnapshotCount.toString(),
-      });
-
-      final response = await _getWithTimeout(
-        uri,
-        operationName: 'getInventoryAbcDsiReport',
-      );
-
-      if (response.statusCode == 200) {
-        return InventoryAbcDsiReport.fromJson(
-          json.decode(response.body) as Map<String, dynamic>,
-        );
-      }
-      throw ApiException('Failed to get inventory ABC/DSI report', response.statusCode);
-    } catch (e) {
-      throw ApiException('Error getting inventory ABC/DSI report: $e');
     }
   }
 
@@ -1343,44 +1123,6 @@ class ApiService {
 
   void dispose() {
     _client.close();
-  }
-}
-
-// Helper classes
-class PaginatedResponse<T> {
-  final List<T> content;
-  final int page;
-  final int size;
-  final int totalElements;
-  final int totalPages;
-  final bool first;
-  final bool last;
-
-  PaginatedResponse({
-    required this.content,
-    required this.page,
-    required this.size,
-    required this.totalElements,
-    required this.totalPages,
-    required this.first,
-    required this.last,
-  });
-
-  factory PaginatedResponse.fromJson(
-    Map<String, dynamic> json,
-    T Function(Map<String, dynamic>) fromJsonT,
-  ) {
-    return PaginatedResponse<T>(
-      content: (json['content'] as List<dynamic>)
-          .map((item) => fromJsonT(item))
-          .toList(),
-      page: json['number'] ?? 0,
-      size: json['size'] ?? 0,
-      totalElements: json['totalElements'] ?? 0,
-      totalPages: json['totalPages'] ?? 0,
-      first: json['first'] ?? true,
-      last: json['last'] ?? true,
-    );
   }
 }
 

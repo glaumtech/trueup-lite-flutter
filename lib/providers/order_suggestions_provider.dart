@@ -6,9 +6,6 @@ import '../models/request_models.dart';
 import '../models/response_models.dart';
 import '../services/api_service.dart';
 import '../services/persistence_service.dart';
-import '../models/weekly_purchase_history.dart';
-import '../models/order_suggestion_history.dart';
-import '../models/inventory_abc_dsi_models.dart';
 
 // API Service Provider
 final apiServiceProvider = Provider<ApiService>((ref) {
@@ -234,110 +231,6 @@ final basketTotalProvider = Provider<int>((ref) {
   final basketItems = ref.watch(basketProvider);
   return basketItems.fold(0, (sum, item) => sum + item.totalCost);
 });
-
-// Weekly Purchase History State
-class WeeklyPurchaseHistoryNotifier
-    extends Notifier<List<WeeklyPurchaseHistory>> {
-  @override
-  List<WeeklyPurchaseHistory> build() {
-    return [];
-  }
-
-  Future<void> loadWeeklyHistory({int weeks = 4}) async {
-    final apiService = ref.read(apiServiceProvider);
-    try {
-      final history = await apiService.getWeeklyPurchaseHistory(weeks: weeks);
-      state = history;
-    } catch (e) {
-      // The screen will handle the error. We just rethrow.
-      rethrow;
-    }
-  }
-}
-
-final weeklyPurchaseHistoryProvider = NotifierProvider<
-    WeeklyPurchaseHistoryNotifier, List<WeeklyPurchaseHistory>>(
-  WeeklyPurchaseHistoryNotifier.new,
-);
-
-// Order Suggestion History State
-class OrderSuggestionHistoryNotifier
-    extends Notifier<List<OrderSuggestionHistory>> {
-  int _page = 0;
-  bool hasMore = true;
-  bool isLoading = false;
-
-  @override
-  List<OrderSuggestionHistory> build() {
-    return [];
-  }
-
-  Future<void> loadHistory({bool refresh = false}) async {
-    if (isLoading) return;
-
-    isLoading = true;
-    if (refresh) {
-      _page = 0;
-      state = [];
-      hasMore = true;
-    }
-
-    if (!hasMore) {
-      isLoading = false;
-      return;
-    }
-
-    final apiService = ref.read(apiServiceProvider);
-    try {
-      final result =
-          await apiService.getOrderSuggestionHistory(page: _page, size: 20);
-      if (result.content.isNotEmpty) {
-        state = [...state, ...result.content];
-        _page++;
-        hasMore = !result.last;
-      } else {
-        hasMore = false;
-      }
-    } catch (e) {
-      rethrow;
-    } finally {
-      isLoading = false;
-    }
-  }
-}
-
-final orderSuggestionHistoryProvider = NotifierProvider<
-    OrderSuggestionHistoryNotifier, List<OrderSuggestionHistory>>(
-  OrderSuggestionHistoryNotifier.new,
-);
-
-// Inventory ABC/DSI report state
-class InventoryAbcDsiReportNotifier extends AsyncNotifier<InventoryAbcDsiReport> {
-  @override
-  Future<InventoryAbcDsiReport> build() async {
-    final apiService = ref.read(apiServiceProvider);
-    return apiService.getInventoryAbcDsiReport();
-  }
-
-  Future<void> loadReport({
-    int windowDays = 90,
-    int weeklySnapshotCount = 13,
-  }) async {
-    state = const AsyncValue.loading();
-    final apiService = ref.read(apiServiceProvider);
-    state = await AsyncValue.guard(
-      () => apiService.getInventoryAbcDsiReport(
-        windowDays: windowDays,
-        weeklySnapshotCount: weeklySnapshotCount,
-      ),
-    );
-  }
-}
-
-final inventoryAbcDsiReportProvider = AsyncNotifierProvider<
-    InventoryAbcDsiReportNotifier, InventoryAbcDsiReport>(
-  InventoryAbcDsiReportNotifier.new,
-);
 
 // Categories State
 class CategoriesNotifier extends AsyncNotifier<List<Map<String, dynamic>>> {

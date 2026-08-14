@@ -9,7 +9,7 @@ class AuthState {
 
   const AuthState({this.session, this.loading = false});
 
-  bool get isStaffLoggedIn => session != null && session!.billingKioskUser;
+  bool get isStaffLoggedIn => session != null;
 }
 
 class AuthNotifier extends Notifier<AuthState> {

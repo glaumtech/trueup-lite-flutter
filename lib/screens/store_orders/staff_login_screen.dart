@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
 
 class StaffLoginScreen extends ConsumerStatefulWidget {
   const StaffLoginScreen({super.key});
@@ -18,7 +19,24 @@ class _StaffLoginScreenState extends ConsumerState<StaffLoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _submitting = false;
+  bool _credentialsLoaded = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final saved = await AuthService().loadSavedCredentials();
+    if (!mounted) return;
+    if (saved != null) {
+      _usernameController.text = saved.username;
+      _passwordController.text = saved.password;
+    }
+    setState(() => _credentialsLoaded = true);
+  }
 
   @override
   void dispose() {
@@ -54,7 +72,16 @@ class _StaffLoginScreenState extends ConsumerState<StaffLoginScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    if (auth.loading) {
+    if (auth.loading || !_credentialsLoaded) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (auth.isStaffLoggedIn) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/online-orders');
+      });
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );

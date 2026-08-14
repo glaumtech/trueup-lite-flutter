@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/admin_store_order.dart';
 import '../../providers/auth_provider.dart';
@@ -124,6 +126,59 @@ class _OnlineOrderDetailScreenState
     } finally {
       if (mounted) setState(() => _savingNotes = false);
     }
+  }
+
+  Future<void> _callCustomer(String phone) async {
+    final sanitized = phone.replaceAll(RegExp(r'[^\d+]'), '');
+    if (sanitized.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No phone number available')),
+      );
+      return;
+    }
+
+    final uri = Uri(scheme: 'tel', path: sanitized);
+    try {
+      final launched = await launchUrl(uri);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open phone dialer')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open phone dialer')),
+      );
+    }
+  }
+
+  Future<void> _copyAddress(ShippingAddress address) async {
+    final lines = <String>[
+      address.name,
+      if (address.street.isNotEmpty) address.street,
+      [
+        address.city,
+        address.state,
+        address.zip,
+      ].where((s) => s.isNotEmpty).join(', '),
+      if (address.phone.isNotEmpty) 'Phone: ${address.phone}',
+    ].where((line) => line.trim().isNotEmpty).toList();
+
+    if (lines.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No address available')),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: lines.join('\n')));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Address copied')),
+    );
   }
 
   @override
@@ -278,6 +333,15 @@ class _OnlineOrderDetailScreenState
                           const SizedBox(height: 16),
                           _SectionCard(
                             title: 'Ship To',
+                            trailing: IconButton(
+                              tooltip: 'Copy address',
+                              icon: Icon(
+                                Icons.copy,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                              onPressed: () =>
+                                  _copyAddress(order.shippingAddress),
+                            ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -294,7 +358,25 @@ class _OnlineOrderDetailScreenState
                                   ].where((s) => s.isNotEmpty).join(', '),
                                 ),
                                 if (order.shippingAddress.phone.isNotEmpty)
-                                  Text('Phone: ${order.shippingAddress.phone}'),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'Phone: ${order.shippingAddress.phone}',
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Call customer',
+                                        icon: Icon(
+                                          Icons.call,
+                                          color: Theme.of(context).primaryColor,
+                                        ),
+                                        onPressed: () => _callCustomer(
+                                          order.shippingAddress.phone,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 if (order.shippingAddress.email.isNotEmpty)
                                   Text('Email: ${order.shippingAddress.email}'),
                               ],
@@ -323,8 +405,13 @@ class _OnlineOrderDetailScreenState
 class _SectionCard extends StatelessWidget {
   final String title;
   final Widget child;
+  final Widget? trailing;
 
-  const _SectionCard({required this.title, required this.child});
+  const _SectionCard({
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -334,11 +421,18 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
+                ),
+                if (trailing != null) trailing!,
+              ],
             ),
             const SizedBox(height: 12),
             child,
