@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/admin_store_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../utils/whatsapp_formatter.dart';
 
 const _statusOptions = [
   'Pending',
@@ -181,6 +183,35 @@ class _OnlineOrderDetailScreenState
     );
   }
 
+  Future<void> _shareOrder() async {
+    final order = _order;
+    if (order == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order not loaded')),
+      );
+      return;
+    }
+
+    final text = WhatsAppFormatter.formatOnlineOrder(order);
+    if (text.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to share')),
+      );
+      return;
+    }
+
+    try {
+      await Share.share(text);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not share order')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final order = _order;
@@ -202,6 +233,12 @@ class _OnlineOrderDetailScreenState
                 height: 20,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
+            ),
+          if (order != null)
+            IconButton(
+              tooltip: 'Share for WhatsApp',
+              icon: const Icon(Icons.share),
+              onPressed: _shareOrder,
             ),
         ],
       ),

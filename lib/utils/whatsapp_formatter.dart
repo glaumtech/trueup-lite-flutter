@@ -1,9 +1,57 @@
 import 'package:intl/intl.dart';
+import '../models/admin_store_order.dart';
 import '../models/po_basket_item.dart';
 import '../models/ordered_item.dart';
 
 /// Utility class for formatting basket items for WhatsApp sharing
 class WhatsAppFormatter {
+  static final _currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+
+  /// Format an online store order as WhatsApp-ready receipt text.
+  ///
+  /// Business requirement: staff share order details, bill summary, and
+  /// customer address/phone with courier partners via WhatsApp.
+  static String formatOnlineOrder(AdminStoreOrder order) {
+    final buffer = StringBuffer();
+
+    for (final item in order.items) {
+      final amount = _currency.format(lineTotal(item));
+      buffer.writeln('*${item.name}*    $amount');
+      buffer.writeln('${item.qty} × ${_currency.format(item.price)}');
+      buffer.writeln('');
+    }
+
+    buffer.writeln('*Bill Summary*');
+    buffer.writeln('Subtotal    ${_currency.format(order.subtotal)}');
+    buffer.writeln('Courier    ${_currency.format(order.shippingFee)}');
+    buffer.writeln('────────────────');
+    buffer.writeln(
+      '*Total*    *${_currency.format(order.total)}*',
+    );
+    buffer.writeln('');
+
+    final address = order.shippingAddress;
+    if (address.name.trim().isNotEmpty) {
+      buffer.writeln(address.name);
+    }
+    if (address.street.trim().isNotEmpty) {
+      buffer.writeln(address.street);
+    }
+    final cityLine = [
+      address.city,
+      address.state,
+      address.zip,
+    ].where((s) => s.trim().isNotEmpty).join(', ');
+    if (cityLine.isNotEmpty) {
+      buffer.writeln(cityLine);
+    }
+    if (address.phone.trim().isNotEmpty) {
+      buffer.writeln('Phone: ${address.phone}');
+    }
+
+    return buffer.toString().trimRight();
+  }
+
   /// Format a list of basket items for a supplier as WhatsApp-ready text
   static String formatSupplierList({
     required String supplierName,
