@@ -14,21 +14,10 @@ class WhatsAppFormatter {
   static String formatOnlineOrder(AdminStoreOrder order) {
     final buffer = StringBuffer();
 
-    for (final item in order.items) {
-      final amount = _currency.format(lineTotal(item));
-      buffer.writeln('*${item.name}*    $amount');
-      buffer.writeln('${item.qty} × ${_currency.format(item.price)}');
+    if (order.id.trim().isNotEmpty) {
+      buffer.writeln('*Order:* ${order.id}');
       buffer.writeln('');
     }
-
-    buffer.writeln('*Bill Summary*');
-    buffer.writeln('Subtotal    ${_currency.format(order.subtotal)}');
-    buffer.writeln('Courier    ${_currency.format(order.shippingFee)}');
-    buffer.writeln('────────────────');
-    buffer.writeln(
-      '*Total*    *${_currency.format(order.total)}*',
-    );
-    buffer.writeln('');
 
     final address = order.shippingAddress;
     if (address.name.trim().isNotEmpty) {
@@ -48,6 +37,22 @@ class WhatsAppFormatter {
     if (address.phone.trim().isNotEmpty) {
       buffer.writeln('Phone: ${address.phone}');
     }
+    buffer.writeln('');
+
+    for (final item in order.items) {
+      final amount = _currency.format(lineTotal(item));
+      buffer.writeln('*${item.name}*    $amount');
+      buffer.writeln('${item.qty} × ${_currency.format(item.price)}');
+      buffer.writeln('');
+    }
+
+    buffer.writeln('*Bill Summary*');
+    buffer.writeln('Subtotal    ${_currency.format(order.subtotal)}');
+    buffer.writeln('Courier    ${_currency.format(order.shippingFee)}');
+    buffer.writeln('────────────────');
+    buffer.writeln(
+      '*Total*    *${_currency.format(order.total)}*',
+    );
 
     return buffer.toString().trimRight();
   }
