@@ -26,6 +26,12 @@ A Flutter mobile application for managing order suggestions and purchase orders,
 - **PDF Export**: Generate PDF reports of order suggestions
 - **Text Export**: Export data in simple text format
 
+### Online Orders (staff)
+- **Staff login**: Access pending ecommerce orders from the home screen
+- **Order detail**: View items, bill summary, shipping address, and update status or staff notes
+- **Ship To actions**: Call the customer from the phone row, or open WhatsApp with a pre-filled message of basic order details (order id, items, totals)
+- **Header share**: Share full receipt-style text (including address) via the system share sheet for courier or partner handoff
+
 ## Architecture
 
 ### State Management

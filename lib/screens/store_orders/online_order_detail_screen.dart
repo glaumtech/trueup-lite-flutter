@@ -12,6 +12,7 @@ import '../../models/admin_store_order.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../utils/whatsapp_formatter.dart';
+import '../../utils/whatsapp_launcher.dart';
 
 const _statusOptions = [
   'Pending',
@@ -152,6 +153,42 @@ class _OnlineOrderDetailScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not open phone dialer')),
+      );
+    }
+  }
+
+  static const _whatsAppGreen = Color(0xFF25D366);
+
+  Future<void> _messageCustomerOnWhatsApp(AdminStoreOrder order) async {
+    final phone = order.shippingAddress.phone;
+    final message = WhatsAppFormatter.formatCustomerOrderMessage(order);
+    final uri = WhatsAppLauncher.buildWhatsAppUri(
+      phone: phone,
+      message: message,
+    );
+
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No phone number available')),
+      );
+      return;
+    }
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open WhatsApp')),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open WhatsApp')),
       );
     }
   }
@@ -411,6 +448,15 @@ class _OnlineOrderDetailScreenState
                                         onPressed: () => _callCustomer(
                                           order.shippingAddress.phone,
                                         ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'WhatsApp customer',
+                                        icon: const Icon(
+                                          Icons.chat_bubble_outline,
+                                          color: _whatsAppGreen,
+                                        ),
+                                        onPressed: () =>
+                                            _messageCustomerOnWhatsApp(order),
                                       ),
                                     ],
                                   ),
