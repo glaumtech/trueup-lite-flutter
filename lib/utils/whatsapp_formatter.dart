@@ -57,6 +57,41 @@ class WhatsAppFormatter {
     return buffer.toString().trimRight();
   }
 
+  /// Customer-facing order summary for direct WhatsApp chat (no address or staff notes).
+  static String formatCustomerOrderMessage(AdminStoreOrder order) {
+    const maxItemLines = 20;
+    final buffer = StringBuffer();
+
+    if (order.id.trim().isNotEmpty) {
+      buffer.writeln('*Order:* ${order.id}');
+    }
+    buffer.writeln('Status: ${order.status}');
+    buffer.writeln('Payment: ${order.paymentMethod}');
+    buffer.writeln('');
+
+    final items = order.items;
+    final visibleCount = items.length > maxItemLines ? maxItemLines : items.length;
+    for (var i = 0; i < visibleCount; i++) {
+      final item = items[i];
+      final amount = _currency.format(lineTotal(item));
+      buffer.writeln('*${item.name}*    $amount');
+      buffer.writeln('${item.qty} × ${_currency.format(item.price)}');
+      buffer.writeln('');
+    }
+    if (items.length > maxItemLines) {
+      buffer.writeln('+ ${items.length - maxItemLines} more items');
+      buffer.writeln('');
+    }
+
+    buffer.writeln('*Bill Summary*');
+    buffer.writeln('Subtotal    ${_currency.format(order.subtotal)}');
+    buffer.writeln('Courier    ${_currency.format(order.shippingFee)}');
+    buffer.writeln('────────────────');
+    buffer.writeln('*Total*    *${_currency.format(order.total)}*');
+
+    return buffer.toString().trimRight();
+  }
+
   /// Format a list of basket items for a supplier as WhatsApp-ready text
   static String formatSupplierList({
     required String supplierName,
